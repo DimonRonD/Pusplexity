@@ -367,6 +367,15 @@ def run_telegram_bot():
             return
         context_parts = [f"[{src}]\n{doc}" for doc, src, _ in results]
         rag_context = "\n\n---\n\n".join(context_parts)
+        # Собираем источники с лучшим score: 1/(1+distance), выше = релевантнее
+        source_scores: dict[str, float] = {}
+        for doc, src, dist in results:
+            if src:
+                score = round(1 / (1 + dist), 3)
+                if src not in source_scores or score > source_scores[src]:
+                    source_scores[src] = score
+        sources_line = ", ".join(f"{s} ({d})" for s, d in sorted(source_scores.items()))
+
         rag_history = list(context.user_data.get("rag_chat_history", []))
         try:
             result_text = await asyncio.to_thread(
@@ -390,6 +399,7 @@ def run_telegram_bot():
         else:
             for part in parts:
                 await update.message.reply_text(part)
+        await update.message.reply_text(f"📎 Источники (score): {sources_line}")
 
     async def cmd_rag_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "rag_text")

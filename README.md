@@ -50,6 +50,7 @@ ImageBot/
 ├── bot.py              # Telegram-бот и CLI
 ├── processor.py       # Обработка изображений и чат OpenAI
 ├── rag_store.py       # RAG на ChromaDB (индексация, поиск, удаление)
+├── rag_view_chunks.py # Просмотр чанков в консоли (отдельно от бота)
 ├── requirements.txt
 ├── .env.example
 ├── README.md
@@ -173,6 +174,14 @@ store.index_documents(DATA_DIR)  # Индексация из data/
 store.list_sources()             # Список источников
 results = store.query("вопрос")  # Семантический поиск
 store.delete_source("doc.pdf")   # Удаление источника
+```
+
+### Просмотр чанков (консоль)
+
+```bash
+python rag_view_chunks.py              # все чанки
+python rag_view_chunks.py --list       # список источников
+python rag_view_chunks.py --source doc.pdf --limit 5
 ```
 
 ## Лицензия
