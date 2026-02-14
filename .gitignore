@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+output.png
+temp_output.png
+bot_data.pickle

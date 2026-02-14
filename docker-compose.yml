@@ -1,0 +1,15 @@
+services:
+  imagebot:
+    build: .
+    container_name: imagebot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - BOT_DATA_PATH=/data/bot_data.pickle
+    volumes:
+      - bot_data:/data
+    # Для вывода логов в консоль добавьте -v:
+    # command: ["python", "bot.py", "telegram", "-v"]
+
+volumes:
+  bot_data:
