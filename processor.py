@@ -117,8 +117,6 @@ class ImageProcessor:
                 size=size,
                 output_format=output_format,
             )
-            if model and model.startswith("gpt-image"):
-                edit_kwargs["moderation"] = "low"
             result = self.client.images.edit(**edit_kwargs)
         finally:
             for f in image_files:
@@ -378,7 +376,6 @@ class ImageProcessor:
                 size=size,
                 output_format=output_format,
                 n=1,
-                moderation="low",
             )
 
         result = self.client.images.generate(**kwargs)
