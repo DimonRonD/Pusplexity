@@ -310,19 +310,24 @@ class ImageProcessor:
         logger.info("Генерация изображения по тексту: model=%s, prompt=%r", model, prompt[:100])
 
         start_time = time.perf_counter()
-        kwargs = dict(
-            prompt=prompt.strip(),
-            model=model,
-            quality=quality,
-            size=size,
-            output_format=output_format,
-            n=1,
-        )
-        # DALL-E возвращает url по умолчанию — нужен b64_json для bytes
         if model.startswith("dall-e"):
-            kwargs["response_format"] = "b64_json"
+            kwargs = dict(
+                prompt=prompt.strip(),
+                model=model,
+                size=size,
+                n=1,
+                response_format="b64_json",
+            )
         else:
-            kwargs["moderation"] = "low"
+            kwargs = dict(
+                prompt=prompt.strip(),
+                model=model,
+                quality=quality,
+                size=size,
+                output_format=output_format,
+                n=1,
+                moderation="low",
+            )
 
         result = self.client.images.generate(**kwargs)
         elapsed = time.perf_counter() - start_time
