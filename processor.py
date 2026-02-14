@@ -109,7 +109,7 @@ class ImageProcessor:
             ]
 
             full_prompt = self.SYSTEM_PROMPT + prompt.strip()
-            result = self.client.images.edit(
+            edit_kwargs = dict(
                 model=model,
                 image=api_images,
                 prompt=full_prompt,
@@ -117,6 +117,9 @@ class ImageProcessor:
                 size=size,
                 output_format=output_format,
             )
+            if model and model.startswith("gpt-image"):
+                edit_kwargs["moderation"] = "low"
+            result = self.client.images.edit(**edit_kwargs)
         finally:
             for f in image_files:
                 if hasattr(f, "close"):
@@ -318,6 +321,8 @@ class ImageProcessor:
         # DALL-E возвращает url по умолчанию — нужен b64_json для bytes
         if model.startswith("dall-e"):
             kwargs["response_format"] = "b64_json"
+        else:
+            kwargs["moderation"] = "low"
 
         result = self.client.images.generate(**kwargs)
         elapsed = time.perf_counter() - start_time

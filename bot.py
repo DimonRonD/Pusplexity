@@ -144,6 +144,24 @@ def run_telegram_bot():
         "create": "gpt-image-1.5 (create)",
     }
 
+    def _format_image_error(exc: Exception) -> str:
+        """Форматирует ошибки генерации изображений для пользователя."""
+        code = None
+        if hasattr(exc, "body") and isinstance(exc.body, dict):
+            err = exc.body.get("error") or exc.body
+            code = err.get("code") if isinstance(err, dict) else None
+        if hasattr(exc, "code"):
+            code = code or getattr(exc, "code", None)
+        if not code and "moderation_blocked" in str(exc):
+            code = "moderation_blocked"
+        if code == "moderation_blocked":
+            return (
+                "⚠️ Запрос отклонён системой безопасности OpenAI.\n\n"
+                "Попробуйте переформулировать описание. "
+                "Если считаете это ошибкой — обратитесь в support: help.openai.com"
+            )
+        return str(exc)
+
     async def cmd_image1(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "gpt-image-1")
         await update.message.reply_text(
@@ -474,12 +492,16 @@ def run_telegram_bot():
                 await message.edit_text(str(e))
                 return
             except Exception as e:
-                logger.exception(
-                    "Ошибка create для user_id=%s: %s",
-                    user.id,
-                    e,
-                )
-                await message.edit_text(f"Ошибка: {e}")
+                err_msg = _format_image_error(e)
+                if "moderation_blocked" in str(e):
+                    logger.info("Create: moderation blocked для user_id=%s", user.id)
+                else:
+                    logger.exception(
+                        "Ошибка create для user_id=%s: %s",
+                        user.id,
+                        e,
+                    )
+                await message.edit_text(err_msg)
                 return
             output = Path("temp_output.png")
             output.write_bytes(result_bytes)
@@ -550,12 +572,16 @@ def run_telegram_bot():
             await message.edit_text(str(e))
             return
         except Exception as e:
-            logger.exception(
-                "Ошибка при обработке для user_id=%s: %s",
-                user.id,
-                e,
-            )
-            await message.edit_text(f"Ошибка: {e}")
+            err_msg = _format_image_error(e)
+            if "moderation_blocked" in str(e):
+                logger.info("Обработка: moderation blocked для user_id=%s", user.id)
+            else:
+                logger.exception(
+                    "Ошибка при обработке для user_id=%s: %s",
+                    user.id,
+                    e,
+                )
+            await message.edit_text(err_msg)
             return
 
         logger.info(
