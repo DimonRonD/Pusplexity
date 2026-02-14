@@ -225,10 +225,11 @@ class ImageProcessor:
         prompt: str,
         *,
         model: str = "gpt-5.2",
+        history: list[dict] | None = None,
     ) -> str:
         """
         Текстовый режим: распознавание/анализ изображения, возврат текста.
-        Поддерживает 1 изображение.
+        Поддерживает 1 изображение. history — контекст диалога (без изображений).
         """
         if hasattr(image, "seek"):
             image.seek(0)
@@ -252,26 +253,77 @@ class ImageProcessor:
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
         ]
 
+        messages = []
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": content})
+
         response = self.client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": content}],
+            messages=messages,
         )
         text = response.choices[0].message.content or ""
         logger.info("Текстовый режим: ответ %d символов", len(text))
         return text
 
-    def process_text_only(self, prompt: str, *, model: str = "gpt-5.2") -> str:
+    def process_text_only(
+        self,
+        prompt: str,
+        *,
+        model: str = "gpt-5.2",
+        history: list[dict] | None = None,
+    ) -> str:
         """
         Чат только по тексту, без изображений.
+        history: список {"role": "user"|"assistant", "content": "..."} для контекста.
         """
         if not prompt or not prompt.strip():
             raise ValueError("Сообщение не может быть пустым")
+        messages = []
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": prompt.strip()})
         response = self.client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": prompt.strip()}],
+            messages=messages,
         )
         text = response.choices[0].message.content or ""
         logger.info("Текстовый чат: ответ %d символов", len(text))
+        return text
+
+    def process_text_with_rag_context(
+        self,
+        prompt: str,
+        context: str,
+        *,
+        model: str = "gpt-5.2",
+        history: list[dict] | None = None,
+    ) -> str:
+        """
+        Ответ на вопрос с контекстом из RAG.
+        history: список {"role": "user"|"assistant", "content": "..."} для контекста диалога.
+        """
+        if not prompt or not prompt.strip():
+            raise ValueError("Вопрос не может быть пустым")
+        system = (
+            "Ты помощник с двумя источниками информации:\n"
+            "1) Контекст из корпоративной базы знаний (документы) — для вопросов о содержимом.\n"
+            "2) История диалога (предыдущие вопросы и ответы) — для вопросов о самом разговоре: "
+            "«какие были предыдущие вопросы/команды», «что мы обсуждали», «повтори ответ» и т.п.\n\n"
+            "Для вопросов о документах отвечай только на основе контекста. "
+            "Для вопросов о диалоге используй историю. Если информации нет, честно скажи."
+        )
+        user_content = f"Контекст:\n\n{context}\n\n---\nВопрос: {prompt.strip()}"
+        messages = [{"role": "system", "content": system}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": user_content})
+        response = self.client.chat.completions.create(
+            model=model,
+            messages=messages,
+        )
+        text = response.choices[0].message.content or ""
+        logger.info("RAG чат: ответ %d символов", len(text))
         return text
 
     def process_create(

@@ -6,3 +6,5 @@ venv/
 output.png
 temp_output.png
 bot_data.pickle
+data/
+chroma_db/

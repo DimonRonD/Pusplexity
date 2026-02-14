@@ -8,8 +8,12 @@ services:
       - BOT_DATA_PATH=/data/bot_data.pickle
     volumes:
       - bot_data:/data
+      - bot_documents:/app/data
+      - chroma_data:/app/chroma_db
     # Для вывода логов в консоль добавьте -v:
     # command: ["python", "bot.py", "telegram", "-v"]
 
 volumes:
   bot_data:
+  bot_documents:
+  chroma_data:

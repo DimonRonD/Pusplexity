@@ -8,11 +8,13 @@ import asyncio
 import logging
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from processor import ImageProcessor
+from rag_store import DATA_DIR, RAGStore, load_document
 
 load_dotenv()
 
@@ -110,6 +112,7 @@ def run_telegram_bot():
         "dall-e-2": "dall-e-2",
         "create": "create",  # text-to-image, gpt-image-1.5
         "dalle_create": "dalle_create",  # text-to-image, DALL-E 2
+        "rag_text": "rag_text",  # RAG: ответы с контекстом из документов
     }
 
     def set_model(context: ContextTypes.DEFAULT_TYPE, model: str) -> str:
@@ -127,16 +130,12 @@ def run_telegram_bot():
         set_model(context, "gpt-5.2")
         await update.message.reply_text(
             "🖼 ImageBot\n\n"
-            "Модель: gpt-5.2 (по умолчанию для нового пользователя)\n\n"
-            "Режимы: чат текстом (/text), редактирование фото (/image1, /image15, /dalle), генерация по тексту (/create).\n\n"
-            "Команды:\n"
-            "/help — справка по всем командам\n"
-            "/text — текстовый режим (gpt-5.2), 1 фото для распознавания\n"
-            "/image1 — gpt-image-1\n"
-            "/image15 — gpt-image-1.5\n"
-            "/dalle — DALL-E 2 (редактирование 1 фото)\n"
-            "/create — генерация по тексту (gpt-image-1.5)\n"
-            "/dalle_gen — генерация по тексту (DALL-E 2)"
+            "Режим по умолчанию: gpt-5.2 (чат)\n\n"
+            "◾ /text — чат, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD\n"
+            "◾ /image1, /image15, /dalle — редактирование фото\n"
+            "◾ /create, /dalle_gen — генерация по тексту\n"
+            "◾ /rag_add, /rag_index, /rag_text — RAG: база знаний по документам\n\n"
+            "/help — полная справка по всем командам"
         )
 
     MODEL_LABELS = {
@@ -145,6 +144,7 @@ def run_telegram_bot():
         "dall-e-2": "DALL-E 2",
         "create": "gpt-image-1.5 (create)",
         "dalle_create": "DALL-E 2 (create)",
+        "rag_text": "RAG",
     }
 
     def _format_image_error(exc: Exception) -> str:
@@ -205,25 +205,257 @@ def run_telegram_bot():
         )
 
     TELEGRAM_MAX_MESSAGE = 4000  # лимит Telegram 4096, 4000 для совместимости
+    CHAT_HISTORY_SIZE = 20  # последних сообщений (user+assistant) для контекста
+
+    def _update_chat_history(
+        user_data: dict, key: str, user_msg: str, assistant_msg: str
+    ) -> None:
+        """Добавляет пару user/assistant в историю, обрезает до CHAT_HISTORY_SIZE."""
+        history = list(user_data.get(key, []))
+        history.append({"role": "user", "content": user_msg})
+        history.append({"role": "assistant", "content": assistant_msg})
+        user_data[key] = history[-CHAT_HISTORY_SIZE:]
 
     async def cmd_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "gpt-5.2")
         await update.message.reply_text(
             "✅ Переключено на текстовый режим (gpt-5.2)\n\n"
-            "Чат с OpenAI только текстом (без фото) или анализ 1 фото по текстовой команде.\n"
-            "Длинные ответы (>4000 символов) разбиваются на несколько сообщений."
+            "• Чат только текстом\n"
+            "• Анализ 1 фото по подписи\n"
+            "• Загрузите DOCX, PDF, XLSX, TXT, MD как контекст — затем задавайте вопросы\n\n"
+            "Длинные ответы разбиваются на несколько сообщений."
         )
+
+    async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data["text_chat_history"] = []
+        context.user_data.pop("text_context", None)
+        context.user_data.pop("text_context_filename", None)
+        await update.message.reply_text("✅ История сеанса /text очищена (включая загруженный контекст).")
 
     async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "📖 ImageBot — Справка по командам\n\n"
-            "/start — Начало работы. Устанавливает режим gpt-5.2 по умолчанию.\n\n"
-            "/text — Текстовый режим (gpt-5.2). Чат только текстом или анализ 1 фото. Длинные ответы разбиваются на несколько сообщений.\n\n"
-            "/image1 — Модель gpt-image-1. Редактирование 1–10 фото по текстовой команде.\n\n"
-            "/image15 — Модель gpt-image-1.5. Редактирование 1–10 фото по текстовой команде.\n\n"
-            "/dalle — DALL-E 2. Редактирование только 1 фото по текстовой команде.\n\n"
-            "/create — Генерация по тексту без фото (gpt-image-1.5).\n\n"
-            "/dalle_gen — Генерация по тексту без фото (DALL-E 2, до 1000 символов)."
+            "◾ Режимы работы\n"
+            "/start — Начало работы (gpt-5.2 по умолчанию).\n"
+            "/text — Чат gpt-5.2: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
+            "/image1 — gpt-image-1: редактирование 1–10 фото.\n"
+            "/image15 — gpt-image-1.5: редактирование 1–10 фото.\n"
+            "/dalle — DALL-E 2: редактирование 1 фото.\n"
+            "/create — Генерация по тексту (gpt-image-1.5).\n"
+            "/dalle_gen — Генерация по тексту (DALL-E 2, до 1000 символов).\n\n"
+            "◾ RAG — база знаний\n"
+            "/rag_add — Включить режим загрузки. Отправьте TXT, PDF, XLSX, DOCX, MD.\n"
+            "/rag_index — Индексировать файлы из data/ в ChromaDB.\n"
+            "/rag_list — Список источников в хранилище.\n"
+            "/rag_delete <источник> — Удалить источник и его данные из ChromaDB.\n"
+            "/rag_text — Режим RAG. Задавайте вопросы, ответы по документам. До смены режима.\n"
+            "/rag_clear — Очистить историю сеанса /rag_text.\n\n"
+            "/clear — Очистить историю и контекст документа в /text.\n"
+            "/help — Эта справка."
+        )
+
+    RAG_ALLOWED_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".text")
+    TEXT_CONTEXT_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".text")
+
+    def _get_rag_store():
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY не задан (нужен для эмбеддингов)")
+        return RAGStore(api_key=api_key)
+
+    async def cmd_rag_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data["rag_add_mode"] = True
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        await update.message.reply_text(
+            "📂 Режим загрузки RAG включён.\n\n"
+            "Отправьте документы (TXT, PDF, XLSX, DOCX). Можно несколько подряд.\n"
+            "Чтобы выйти из режима — отправьте /rag_index или любую другую команду."
+        )
+
+    async def cmd_rag_index(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data["rag_add_mode"] = False
+        msg = await update.message.reply_text("⏳ Индексация документов…")
+        try:
+            store = _get_rag_store()
+            counts = await asyncio.to_thread(store.index_documents, DATA_DIR)
+        except ValueError as e:
+            await msg.edit_text(str(e))
+            return
+        except Exception as e:
+            logger.exception("Ошибка индексации RAG: %s", e)
+            await msg.edit_text(f"Ошибка индексации: {e}")
+            return
+        if not counts:
+            await msg.edit_text(
+                "Нет документов для индексации. Используйте /rag_add и отправьте файлы (TXT, PDF, XLSX, DOCX)."
+            )
+            return
+        total = sum(counts.values())
+        lines = [f"✅ Проиндексировано {total} чанков из {len(counts)} файлов:\n"]
+        for src, cnt in sorted(counts.items()):
+            lines.append(f"  • {src}: {cnt} чанков")
+        await msg.edit_text("\n".join(lines))
+
+    async def cmd_rag_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            store = _get_rag_store()
+            sources = await asyncio.to_thread(store.list_sources)
+        except ValueError as e:
+            await update.message.reply_text(str(e))
+            return
+        except Exception as e:
+            logger.exception("Ошибка list_sources: %s", e)
+            await update.message.reply_text(f"Ошибка: {e}")
+            return
+        if not sources:
+            await update.message.reply_text(
+                "Хранилище RAG пусто. Используйте /rag_add и /rag_index."
+            )
+            return
+        text = "📚 Источники в RAG:\n\n" + "\n".join(f"• {s}" for s in sources)
+        await update.message.reply_text(text)
+
+    async def cmd_rag_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        context.user_data["rag_chat_history"] = []
+        await update.message.reply_text("✅ История сеанса /rag_text очищена.")
+
+    async def cmd_rag_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        source = " ".join(context.args or []).strip() if context.args else ""
+        if not source:
+            await update.message.reply_text(
+                "Использование: /rag_delete <источник>\n\n"
+                "Укажите точное имя источника из /rag_list, например:\n"
+                "/rag_delete doc.pdf"
+            )
+            return
+        try:
+            store = _get_rag_store()
+            count = await asyncio.to_thread(
+                store.delete_source, source, DATA_DIR
+            )
+        except ValueError as e:
+            await update.message.reply_text(str(e))
+            return
+        except Exception as e:
+            logger.exception("Ошибка удаления источника: %s", e)
+            await update.message.reply_text(f"Ошибка: {e}")
+            return
+        await update.message.reply_text(
+            f"✅ Источник «{source}» удалён ({count} чанков, файл из data/ при наличии)."
+        )
+
+    async def _process_rag_query(
+        update: Update, context: ContextTypes.DEFAULT_TYPE, query: str
+    ) -> None:
+        """Обрабатывает RAG-запрос (поиск + ответ)."""
+        msg = await update.message.reply_text("⏳ Ищу в базе и формирую ответ…")
+        try:
+            store = _get_rag_store()
+            results = await asyncio.to_thread(store.query, query, 5)
+        except ValueError as e:
+            await msg.edit_text(str(e))
+            return
+        except Exception as e:
+            logger.exception("Ошибка RAG query: %s", e)
+            await msg.edit_text(f"Ошибка: {e}")
+            return
+        if not results:
+            await msg.edit_text(
+                "Хранилище RAG пусто или по запросу ничего не найдено. "
+                "Используйте /rag_add и /rag_index."
+            )
+            return
+        context_parts = [f"[{src}]\n{doc}" for doc, src, _ in results]
+        rag_context = "\n\n---\n\n".join(context_parts)
+        rag_history = list(context.user_data.get("rag_chat_history", []))
+        try:
+            result_text = await asyncio.to_thread(
+                processor.process_text_with_rag_context,
+                query,
+                rag_context,
+                model="gpt-5.2",
+                history=rag_history if rag_history else None,
+            )
+        except Exception as e:
+            logger.exception("Ошибка OpenAI для /rag_text: %s", e)
+            await msg.edit_text(f"Ошибка: {e}")
+            return
+        _update_chat_history(
+            context.user_data, "rag_chat_history", query, result_text
+        )
+        await msg.delete()
+        parts = chunk_text(result_text)
+        if not parts:
+            await update.message.reply_text("(Пустой ответ)")
+        else:
+            for part in parts:
+                await update.message.reply_text(part)
+
+    async def cmd_rag_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        set_model(context, "rag_text")
+        query = (update.message.text or "").replace("/rag_text", "", 1).strip()
+        if not query:
+            await update.message.reply_text(
+                "✅ Режим RAG включён.\n\n"
+                "Задавайте вопросы — ответы будут сформированы на основе документов из хранилища.\n"
+                "Для смены режима: /text, /image15 и другие команды."
+            )
+            return
+        await _process_rag_query(update, context, query)
+
+    async def handle_rag_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        doc = update.message.document
+        if not doc or not doc.file_name:
+            return
+        ext = Path(doc.file_name).suffix.lower()
+
+        # RAG add mode: сохраняем в data/
+        if context.user_data.get("rag_add_mode") and ext in RAG_ALLOWED_EXTENSIONS:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            dest = DATA_DIR / doc.file_name
+            try:
+                tg_file = await context.bot.get_file(doc.file_id)
+                await tg_file.download_to_drive(dest)
+            except Exception as e:
+                logger.exception("Ошибка загрузки документа: %s", e)
+                await update.message.reply_text(f"Ошибка сохранения: {e}")
+                return
+            await update.message.reply_text(f"✅ Сохранён: {doc.file_name}")
+            return
+
+        # Режим /text: загрузка документа как контекст для вопросов
+        if get_model(context) == "gpt-5.2" and ext in TEXT_CONTEXT_EXTENSIONS:
+            msg = await update.message.reply_text("⏳ Загружаю документ как контекст…")
+            try:
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    dest = Path(tmpdir) / doc.file_name
+                    tg_file = await context.bot.get_file(doc.file_id)
+                    await tg_file.download_to_drive(dest)
+                    content = await asyncio.to_thread(load_document, dest)
+                if not content or not content.strip():
+                    await msg.edit_text("Не удалось извлечь текст из документа.")
+                    return
+                context.user_data["text_context"] = content.strip()
+                context.user_data["text_context_filename"] = doc.file_name
+                await msg.edit_text(
+                    f"✅ Документ «{doc.file_name}» загружен как контекст.\n\n"
+                    "Задайте вопрос — ответ будет с учётом содержимого документа.\n"
+                    "/clear — сбросить контекст и историю."
+                )
+            except Exception as e:
+                logger.exception("Ошибка загрузки документа для контекста: %s", e)
+                await msg.edit_text(f"Ошибка: {e}")
+            return
+
+        if ext not in RAG_ALLOWED_EXTENSIONS:
+            if context.user_data.get("rag_add_mode"):
+                await update.message.reply_text(
+                    f"Формат {ext} не поддерживается. Используйте TXT, PDF, XLSX или DOCX."
+                )
+            return
+        await update.message.reply_text(
+            "Для загрузки в RAG отправьте /rag_add. "
+            "В режиме /text документ станет контекстом для вопросов."
         )
 
     MEDIA_GROUP_DELAY = 2  # сек — ждём все фото альбома
@@ -244,6 +476,11 @@ def run_telegram_bot():
         user_id = data["user_id"]
         user_data = application.user_data[user_id]
         model = user_data.get("model", DEFAULT_MODEL)
+
+        if model == "rag_text":
+            user_data["pending_images"] = []
+            await first_update.message.reply_text("В режиме RAG отправляйте только текстовые вопросы.")
+            return
 
         # Режимы create/dalle_create: только caption, фото не скачиваем
         if model in ("create", "dalle_create"):
@@ -305,6 +542,11 @@ def run_telegram_bot():
         message = update.message
         user = update.effective_user
         caption = (message.caption or "").strip()
+
+        # Режим RAG: только текстовые вопросы
+        if get_model(context) == "rag_text":
+            await message.reply_text("В режиме RAG отправляйте только текстовые вопросы.")
+            return
 
         # Режимы create/dalle_create: только текст. Одиночное фото — обрабатываем caption
         if get_model(context) in ("create", "dalle_create") and not message.media_group_id:
@@ -419,6 +661,16 @@ def run_telegram_bot():
             text[:100],
             len(images),
         )
+
+        # Режим RAG: текст как вопрос по документам
+        if get_model(context) == "rag_text":
+            if not text:
+                await message.reply_text("Введите вопрос для поиска в RAG.")
+                return
+            if len(text) > 2000:
+                text = text[:2000] + "\n\n[... обрезано]"
+            await _process_rag_query(update, context, text)
+            return
 
         # Режим create: только текст, без изображений
         if get_model(context) == "create":
@@ -586,9 +838,11 @@ def run_telegram_bot():
             await message.delete()
             return
 
-        # Текстовый режим (gpt-5.2): только текст ИЛИ 1 изображение + текст
+        # Текстовый режим (gpt-5.2): только текст ИЛИ 1 изображение + текст ИЛИ текст с контекстом документа
         if model == "gpt-5.2":
             message = await update.message.reply_text("Обрабатываю…")
+            text_history = list(context.user_data.get("text_chat_history", []))
+            text_context = context.user_data.get("text_context")
             try:
                 if images:
                     if len(images) > 1:
@@ -599,12 +853,22 @@ def run_telegram_bot():
                         images[0],
                         prompt,
                         model=model,
+                        history=text_history if text_history else None,
+                    )
+                elif text_context:
+                    result_text = await asyncio.to_thread(
+                        processor.process_text_with_rag_context,
+                        prompt,
+                        text_context,
+                        model=model,
+                        history=text_history if text_history else None,
                     )
                 else:
                     result_text = await asyncio.to_thread(
                         processor.process_text_only,
                         prompt,
                         model=model,
+                        history=text_history if text_history else None,
                     )
             except (ValueError, IndexError) as e:
                 await message.edit_text(str(e))
@@ -614,6 +878,10 @@ def run_telegram_bot():
                 await message.edit_text(f"Ошибка: {e}")
                 return
 
+            user_msg_for_history = f"[Изображение] {prompt}" if images else prompt
+            _update_chat_history(
+                context.user_data, "text_chat_history", user_msg_for_history, result_text
+            )
             await message.delete()
             parts = chunk_text(result_text)
             if not parts:
@@ -685,6 +953,19 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("create", cmd_create))
         app.add_handler(CommandHandler("dalle_gen", cmd_dalle_gen))
         app.add_handler(CommandHandler("help", cmd_help))
+        app.add_handler(CommandHandler("clear", cmd_clear))
+        app.add_handler(CommandHandler("rag_add", cmd_rag_add))
+        app.add_handler(CommandHandler("rag_index", cmd_rag_index))
+        app.add_handler(CommandHandler("rag_list", cmd_rag_list))
+        app.add_handler(CommandHandler("rag_delete", cmd_rag_delete))
+        app.add_handler(CommandHandler("rag_text", cmd_rag_text))
+        app.add_handler(CommandHandler("rag_clear", cmd_rag_clear))
+        app.add_handler(
+            MessageHandler(
+                filters.Document.ALL & ~filters.Document.IMAGE,
+                handle_rag_document,
+            )
+        )
         app.add_handler(MessageHandler(filters.PHOTO, handle_images))
         app.add_handler(MessageHandler(filters.Document.IMAGE, handle_images))
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
