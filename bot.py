@@ -109,6 +109,7 @@ def run_telegram_bot():
         "gpt-image-1.5": "gpt-image-1.5",
         "dall-e-2": "dall-e-2",
         "create": "create",  # text-to-image, gpt-image-1.5
+        "dalle_create": "dalle_create",  # text-to-image, DALL-E 2
     }
 
     def set_model(context: ContextTypes.DEFAULT_TYPE, model: str) -> str:
@@ -133,8 +134,9 @@ def run_telegram_bot():
             "/text — текстовый режим (gpt-5.2), 1 фото для распознавания\n"
             "/image1 — gpt-image-1\n"
             "/image15 — gpt-image-1.5\n"
-            "/dalle — DALL-E 2\n"
-            "/create — генерация по тексту без фото (gpt-image-1.5)"
+            "/dalle — DALL-E 2 (редактирование 1 фото)\n"
+            "/create — генерация по тексту (gpt-image-1.5)\n"
+            "/dalle_gen — генерация по тексту (DALL-E 2)"
         )
 
     MODEL_LABELS = {
@@ -142,6 +144,7 @@ def run_telegram_bot():
         "gpt-image-1.5": "gpt-image-1.5",
         "dall-e-2": "DALL-E 2",
         "create": "gpt-image-1.5 (create)",
+        "dalle_create": "DALL-E 2 (create)",
     }
 
     def _format_image_error(exc: Exception) -> str:
@@ -193,6 +196,14 @@ def run_telegram_bot():
             "Модель: gpt-image-1.5"
         )
 
+    async def cmd_dalle_gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        set_model(context, "dalle_create")
+        await update.message.reply_text(
+            "✅ Режим: DALL-E 2 Gen (режим сохранён)\n\n"
+            "Генерация по тексту без фото. Отправьте текстовое описание — получите изображение.\n"
+            "Модель: DALL-E 2 (до 1000 символов)"
+        )
+
     TELEGRAM_MAX_MESSAGE = 4000  # лимит Telegram 4096, 4000 для совместимости
 
     async def cmd_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -211,7 +222,8 @@ def run_telegram_bot():
             "/image1 — Модель gpt-image-1. Редактирование 1–10 фото по текстовой команде.\n\n"
             "/image15 — Модель gpt-image-1.5. Редактирование 1–10 фото по текстовой команде.\n\n"
             "/dalle — DALL-E 2. Редактирование только 1 фото по текстовой команде.\n\n"
-            "/create — Генерация по тексту без фото. Отправьте описание — получите изображение (gpt-image-1.5)."
+            "/create — Генерация по тексту без фото (gpt-image-1.5).\n\n"
+            "/dalle_gen — Генерация по тексту без фото (DALL-E 2, до 1000 символов)."
         )
 
     MEDIA_GROUP_DELAY = 2  # сек — ждём все фото альбома
@@ -233,8 +245,8 @@ def run_telegram_bot():
         user_data = application.user_data[user_id]
         model = user_data.get("model", DEFAULT_MODEL)
 
-        # Режим create: только caption, фото не скачиваем
-        if model == "create":
+        # Режимы create/dalle_create: только caption, фото не скачиваем
+        if model in ("create", "dalle_create"):
             user_data["pending_images"] = []
             if caption:
                 class Ctx:
@@ -245,8 +257,9 @@ def run_telegram_bot():
                 ctx.user_data = user_data
                 await process_and_reply(first_update, ctx, [], caption)
             else:
+                mode_name = "DALL-E Gen" if model == "dalle_create" else "Create"
                 await first_update.message.reply_text(
-                    "В режиме Create отправьте текстовое описание (подпись к фото)."
+                    f"В режиме {mode_name} отправьте текстовое описание (подпись к фото)."
                 )
             return
 
@@ -293,14 +306,15 @@ def run_telegram_bot():
         user = update.effective_user
         caption = (message.caption or "").strip()
 
-        # Режим create: только текст. Одиночное фото — сразу обрабатываем caption
-        if get_model(context) == "create" and not message.media_group_id:
+        # Режимы create/dalle_create: только текст. Одиночное фото — обрабатываем caption
+        if get_model(context) in ("create", "dalle_create") and not message.media_group_id:
             if caption:
                 context.user_data["pending_images"] = []
                 await process_and_reply(update, context, [], caption)
             else:
+                mode_name = "DALL-E Gen" if get_model(context) == "dalle_create" else "Create"
                 await message.reply_text(
-                    "В режиме Create отправьте только текстовое описание изображения "
+                    f"В режиме {mode_name} отправьте только текстовое описание изображения "
                     "(без фото)."
                 )
             return
@@ -418,6 +432,18 @@ def run_telegram_bot():
             await process_and_reply(update, context, [], text)
             return
 
+        # Режим dalle_create: только текст (DALL-E 2, лимит 1000 символов)
+        if get_model(context) == "dalle_create":
+            if not text:
+                await message.reply_text("Введите текстовое описание изображения.")
+                return
+            if len(text) > 1000:
+                text = text[:1000] + "\n\n[... обрезано]"
+                await message.reply_text("DALL-E 2: описание обрезано до 1000 символов.")
+            context.user_data["pending_images"] = []
+            await process_and_reply(update, context, [], text)
+            return
+
         # Режим text (gpt-5.2): можно только текст ИЛИ текст + 1 фото
         if get_model(context) == "gpt-5.2":
             if not text:
@@ -476,7 +502,7 @@ def run_telegram_bot():
             prompt,
         )
 
-        # Режим create: только текст → изображение (images.generate)
+        # Режим create: только текст → изображение (images.generate, gpt-image-1.5)
         if model == "create":
             model_label = MODEL_LABELS.get(model, model)
             message = await update.message.reply_text(
@@ -498,6 +524,48 @@ def run_telegram_bot():
                 else:
                     logger.exception(
                         "Ошибка create для user_id=%s: %s",
+                        user.id,
+                        e,
+                    )
+                await message.edit_text(err_msg)
+                return
+            output = Path("temp_output.png")
+            output.write_bytes(result_bytes)
+            caption = f"Модель: {model_label}"
+            if usage_str:
+                caption += f"\n{usage_str}"
+            try:
+                await update.message.reply_photo(
+                    photo=output.open("rb"),
+                    caption=caption,
+                )
+            finally:
+                output.unlink(missing_ok=True)
+            await message.delete()
+            return
+
+        # Режим dalle_create: только текст → изображение (images.generate, DALL-E 2)
+        if model == "dalle_create":
+            model_label = MODEL_LABELS.get(model, model)
+            message = await update.message.reply_text(
+                f"Генерирую изображение ({model_label})…"
+            )
+            try:
+                result_bytes, usage_str = await asyncio.to_thread(
+                    processor.process_create,
+                    prompt,
+                    model="dall-e-2",
+                )
+            except ValueError as e:
+                await message.edit_text(str(e))
+                return
+            except Exception as e:
+                err_msg = _format_image_error(e)
+                if "moderation_blocked" in str(e):
+                    logger.info("DALL-E create: moderation blocked для user_id=%s", user.id)
+                else:
+                    logger.exception(
+                        "Ошибка dalle_create для user_id=%s: %s",
                         user.id,
                         e,
                     )
@@ -615,6 +683,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("image15", cmd_image15))
         app.add_handler(CommandHandler("dalle", cmd_dalle))
         app.add_handler(CommandHandler("create", cmd_create))
+        app.add_handler(CommandHandler("dalle_gen", cmd_dalle_gen))
         app.add_handler(CommandHandler("help", cmd_help))
         app.add_handler(MessageHandler(filters.PHOTO, handle_images))
         app.add_handler(MessageHandler(filters.Document.IMAGE, handle_images))
