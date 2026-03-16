@@ -13,6 +13,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import user_db
+
 from flask import (
     Flask,
     redirect,
@@ -37,8 +39,8 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
 logger = logging.getLogger(__name__)
 
-# Состояние пользователей: sid -> {model, pending_images, text_chat_history, ...}
-_user_data: dict[str, dict] = {}
+# Кэш в памяти (pending_images, rag_add_mode — сессионные)
+_user_cache: dict[str, dict] = {}
 
 DEFAULT_MODEL = "gpt-image-1.5"
 MODELS = {
@@ -63,16 +65,18 @@ TEXT_CONTEXT_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".te
 CHAT_HISTORY_SIZE = 20
 
 
-def _get_sid() -> str:
-    if "_sid" not in session:
-        session["_sid"] = str(uuid.uuid4())
-    return session["_sid"]
+def _get_user_key() -> str | None:
+    """Email пользователя или None."""
+    return session.get("email")
 
 
 def _get_user_data() -> dict:
-    sid = _get_sid()
-    if sid not in _user_data:
-        _user_data[sid] = {
+    """Данные пользователя: из SQLite + кэш (pending_images, rag_add_mode)."""
+    key = _get_user_key()
+    if not key:
+        key = str(uuid.uuid4())
+    if key not in _user_cache:
+        ud = user_db.get_user_data(key) if "@" in key else {
             "model": "gpt-5.2",
             "pending_images": [],
             "text_chat_history": [],
@@ -81,11 +85,20 @@ def _get_user_data() -> dict:
             "text_context_filename": None,
             "rag_add_mode": False,
         }
-    return _user_data[sid]
+        _user_cache[key] = ud
+    return _user_cache[key]
+
+
+def _save_user_data() -> None:
+    """Сохраняет данные в SQLite (для авторизованных по email)."""
+    key = _get_user_key()
+    if key and "@" in key and key in _user_cache:
+        user_db.save_user_data(key, _user_cache[key])
 
 
 def _set_model(model: str) -> None:
     _get_user_data()["model"] = model
+    _save_user_data()
 
 
 def _get_model() -> str:
@@ -98,6 +111,7 @@ def _update_chat_history(key: str, user_msg: str, assistant_msg: str) -> None:
     history.append({"role": "user", "content": user_msg})
     history.append({"role": "assistant", "content": assistant_msg})
     ud[key] = history[-CHAT_HISTORY_SIZE:]
+    _save_user_data()
 
 
 def _get_rag_store() -> RAGStore:
@@ -171,9 +185,7 @@ def login():
 
 @app.route("/logout")
 def logout():
-    sid = session.get("_sid")
-    if sid and sid in _user_data:
-        del _user_data[sid]
+    # Не удаляем _user_data — память сохраняется для аккаунта
     session.clear()
     return redirect(url_for("login"))
 
@@ -237,6 +249,7 @@ def api_command():
         ud["text_chat_history"] = []
         ud.pop("text_context", None)
         ud.pop("text_context_filename", None)
+        _save_user_data()
         return {"ok": True, "message": "✅ История /text очищена."}
     if cmd == "help":
         return {"ok": True, "message": (
@@ -297,6 +310,7 @@ def api_command():
         return {"ok": True, "message": "📚 Источники:\n\n" + "\n".join(f"• {s}" for s in sources)}
     if cmd == "rag_clear":
         ud["rag_chat_history"] = []
+        _save_user_data()
         return {"ok": True, "message": "✅ История /rag_text очищена."}
 
     return {"ok": False, "error": f"Неизвестная команда: {cmd}"}
@@ -480,6 +494,7 @@ def api_upload():
                 return {"ok": False, "error": "Не удалось извлечь текст."}
             ud["text_context"] = content.strip()
             ud["text_context_filename"] = f.filename
+            _save_user_data()
         except Exception as e:
             return {"ok": False, "error": str(e)}
         return {"ok": True, "message": f"✅ Документ «{f.filename}» загружен как контекст."}

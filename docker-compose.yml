@@ -21,11 +21,13 @@ services:
     environment:
       - USERS_FILE=/app/users.txt
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-this-secret-in-production}
+      - USER_DB_PATH=/app/db
     ports:
       - "5000:5000"
     volumes:
       - bot_documents:/app/data
       - chroma_data:/app/chroma_db
+      - user_db:/app/db
       - ./users.txt:/app/users.txt
     command: ["gunicorn", "-w", "1", "-k", "gevent", "-b", "0.0.0.0:5000", "--timeout", "300", "--keep-alive", "5", "web_app:app"]
 
@@ -33,3 +35,4 @@ volumes:
   bot_data:
   bot_documents:
   chroma_data:
+  user_db:
