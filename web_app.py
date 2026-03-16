@@ -448,14 +448,18 @@ def api_upload():
         f.save(dest)
         return {"ok": True, "message": f"✅ Сохранён: {f.filename}"}
 
-    # Документ для контекста /text
+    # Режим /text (gpt-5.2): изображение для анализа ИЛИ документ для контекста
     if model == "gpt-5.2":
         f = request.files.get("file")
         if not f or not f.filename:
             return {"ok": False, "error": "Выберите файл"}
         ext = Path(f.filename).suffix.lower()
+        is_image = ext in (".png", ".jpg", ".jpeg", ".webp", ".gif") or (f.content_type or "").startswith("image/")
+        if is_image:
+            ud["pending_images"] = [f.read()]
+            return {"ok": True, "message": f"✅ Изображение «{f.filename}» загружено. Введите вопрос или описание для анализа."}
         if ext not in TEXT_CONTEXT_EXTENSIONS:
-            return {"ok": False, "error": f"Формат {ext} не поддерживается."}
+            return {"ok": False, "error": f"Формат {ext} не поддерживается. Изображения: PNG, JPG, JPEG, WEBP, GIF. Документы: TXT, PDF, XLSX, DOCX, MD."}
         try:
             with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
                 f.save(tmp.name)
