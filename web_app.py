@@ -240,12 +240,24 @@ def api_command():
         return {"ok": True, "message": "✅ История /text очищена."}
     if cmd == "help":
         return {"ok": True, "message": (
-            "📖 Pusplexity — Справка\n\n"
-            "/text — чат gpt-5.2\n"
-            "/image1, /image15, /dalle — редактирование фото\n"
-            "/create, /dalle_gen — генерация по тексту\n"
-            "/rag_add, /rag_index, /rag_list, /rag_delete, /rag_text, /rag_clear\n"
-            "/clear — очистить историю /text"
+            "📖 Pusplexity — Справка по кнопкам\n\n"
+            "◾ Режимы работы\n"
+            "Старт — Начало работы (gpt-5.2 по умолчанию).\n"
+            "Текст — Чат gpt-5.2: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
+            "Image1 — gpt-image-1: редактирование 1–10 фото.\n"
+            "Image15 — gpt-image-1.5: редактирование 1–10 фото.\n"
+            "DALL-E — DALL-E 2: редактирование 1 фото.\n"
+            "Create — Генерация изображения по тексту (gpt-image-1.5).\n"
+            "DALL-E Gen — Генерация по тексту (DALL-E 2, до 1000 символов).\n\n"
+            "◾ RAG — база знаний\n"
+            "RAG Add — Включить режим загрузки. Загрузите TXT, PDF, XLSX, DOCX, MD.\n"
+            "RAG Index — Индексировать файлы из data/ в ChromaDB.\n"
+            "RAG List — Список источников в хранилище.\n"
+            "RAG Delete — Удалить источник и его данные из ChromaDB (укажите имя).\n"
+            "RAG — Режим RAG. Задавайте вопросы, ответы по документам. До смены режима.\n"
+            "RAG Clear — Очистить историю сеанса RAG.\n\n"
+            "Clear — Очистить историю и контекст документа в режиме Текст.\n"
+            "Help — Эта справка."
         )}
 
     # RAG
