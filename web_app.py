@@ -140,6 +140,12 @@ def _chunk_text(text: str, max_len: int = 4000) -> list[str]:
 # --- Маршруты ---
 
 
+@app.route("/health")
+def health():
+    """Проверка доступности (для диагностики)."""
+    return "OK", 200
+
+
 @app.route("/")
 def index():
     if "email" not in session:
