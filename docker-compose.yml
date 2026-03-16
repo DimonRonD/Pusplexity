@@ -23,11 +23,24 @@ services:
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-this-secret-in-production}
     ports:
       - "5000:5000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.imagebot.rule=Host(`app.dimonrond.ru`)"
+      - "traefik.http.routers.imagebot.entrypoints=web"
+      - "traefik.http.services.imagebot.loadbalancer.server.port=5000"
     volumes:
       - bot_documents:/app/data
       - chroma_data:/app/chroma_db
       - ./users.txt:/app/users.txt
     command: ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "--timeout", "300", "web_app:app"]
+    networks:
+      - traefik
+
+# Сеть Traefik — уточните: docker network ls | grep -E "traefik|n8n"
+networks:
+  traefik:
+    name: n8n_default
+    external: true
 
 volumes:
   bot_data:
