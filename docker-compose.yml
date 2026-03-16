@@ -13,6 +13,22 @@ services:
     # Для вывода логов в консоль добавьте -v:
     # command: ["python", "bot.py", "telegram", "-v"]
 
+  imagebot-web:
+    build: .
+    container_name: imagebot-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - USERS_FILE=/app/users.txt
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-this-secret-in-production}
+    ports:
+      - "5000:5000"
+    volumes:
+      - bot_documents:/app/data
+      - chroma_data:/app/chroma_db
+      - ./users.txt:/app/users.txt
+    command: ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "web_app:app"]
+
 volumes:
   bot_data:
   bot_documents:

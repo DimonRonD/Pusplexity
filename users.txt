@@ -1,0 +1,4 @@
+# Пары email:пароль для входа в веб-интерфейс
+# Формат: email@example.com:password
+# Строки, начинающиеся с #, игнорируются
+# user@example.com:secret123

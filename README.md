@@ -48,6 +48,9 @@ pip install -r requirements.txt
 ```
 ImageBot/
 ├── bot.py              # Telegram-бот и CLI
+├── web_app.py          # Веб-интерфейс Flask
+├── auth.py             # Аутентификация (users.txt)
+├── users.txt           # Пары email:пароль для веб-входа
 ├── processor.py       # Обработка изображений и чат OpenAI
 ├── rag_store.py       # RAG на ChromaDB (индексация, поиск, удаление)
 ├── rag_view_chunks.py # Просмотр чанков в консоли (отдельно от бота)
@@ -62,6 +65,20 @@ ImageBot/
 
 ## Запуск
 
+### Веб-интерфейс (Flask)
+
+Вход по email и паролю. Пары хранятся в `users.txt` (формат: `email@example.com:password`).
+
+```bash
+# Добавьте пользователя в users.txt (раскомментируйте и отредактируйте строку):
+# user@example.com:secret123
+
+python web_app.py
+# Откройте http://localhost:5000
+```
+
+Откройте http://localhost:5000. Интерфейс полностью повторяет функционал Telegram-бота.
+
 ### Docker Compose (рекомендуется для сервера)
 
 ```bash
@@ -74,17 +91,28 @@ docker compose up -d
 docker compose run --rm imagebot python bot.py telegram -v
 ```
 
-**Dockerfile** — образ на `python:3.13-slim`, копирует `bot.py`, `processor.py`, `rag_store.py`. Точка входа: `python bot.py telegram`.
+Запуск только веб-интерфейса:
+```bash
+docker compose up -d imagebot-web
+# http://localhost:5000
+```
+
+**Dockerfile** — образ на `python:3.13-slim`, включает бота и веб-интерфейс. Оба сервиса используют один образ с разными командами.
+
+**Сервисы:**
+- `imagebot` — Telegram-бот
+- `imagebot-web` — веб-интерфейс Flask (порт 5000)
 
 **Структура volumes (docker-compose):**
 
 | Volume | Путь в контейнере | Назначение |
 |--------|-------------------|------------|
 | `bot_data` | `/data` | Состояние бота (persistence), `bot_data.pickle` |
-| `bot_documents` | `/app/data` | Загруженные документы для RAG (`/rag_add`) |
-| `chroma_data` | `/app/chroma_db` | Векторная база ChromaDB (индексы для `/rag_text`) |
+| `bot_documents` | `/app/data` | Загруженные документы для RAG (общий для бота и веб) |
+| `chroma_data` | `/app/chroma_db` | Векторная база ChromaDB (общая для бота и веб) |
+| `./users.txt` | `/app/users.txt` | Пары email:пароль для веб-входа (только imagebot-web) |
 
-Данные в volumes сохраняются между перезапусками контейнера.
+Данные в volumes сохраняются между перезапусками контейнера. Перед запуском добавьте пользователей в `users.txt`.
 
 ### Telegram-бот (локально)
 

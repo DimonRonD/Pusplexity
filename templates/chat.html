@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block title %}ImageBot — Чат{% endblock %}
+{% block extra_css %}
+        .chat-layout {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .chat-header {
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .chat-header h1 { font-size: 1.1rem; font-weight: 600; }
+        .chat-header .user { color: var(--text-muted); font-size: 0.85rem; }
+        .chat-header a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+        .chat-header a:hover { color: var(--accent); }
+        .mode-bar {
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+            padding: 0.5rem 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+        .mode-btn {
+            padding: 0.4rem 0.7rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .mode-btn:hover { border-color: var(--accent); color: var(--text); }
+        .mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .chat-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .msg {
+            max-width: 85%;
+            padding: 0.75rem 1rem;
+            border-radius: 12px;
+            font-size: 0.95rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .msg.user {
+            align-self: flex-end;
+            background: var(--accent);
+            color: #fff;
+        }
+        .msg.bot {
+            align-self: flex-start;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+        }
+        .msg img { max-width: 100%; border-radius: 8px; display: block; margin-top: 0.5rem; }
+        .msg .sources { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem; }
+        .input-area {
+            padding: 1rem;
+            background: var(--bg-panel);
+            border-top: 1px solid var(--border);
+        }
+        .input-row {
+            display: flex;
+            gap: 0.5rem;
+            align-items: flex-end;
+        }
+        .input-row textarea {
+            flex: 1;
+            min-height: 44px;
+            max-height: 120px;
+            padding: 0.65rem 0.9rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.95rem;
+            resize: none;
+        }
+        .input-row textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .input-row .btn-send {
+            padding: 0.65rem 1.2rem;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .input-row .btn-send:hover { background: var(--accent-hover); }
+        .input-row .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+        .file-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .file-actions label {
+            padding: 0.4rem 0.8rem;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+        .file-actions label:hover { border-color: var(--accent); }
+        .file-actions input[type="file"] { display: none; }
+        .loading { opacity: 0.6; }
+{% endblock %}
+{% block content %}
+<div class="chat-layout">
+    <header class="chat-header">
+        <h1>🖼 ImageBot</h1>
+        <span class="user">{{ session.email }}</span>
+        <a href="{{ url_for('logout') }}">Выйти</a>
+    </header>
+    <div class="mode-bar">
+        <button class="mode-btn" data-cmd="start">Старт</button>
+        <button class="mode-btn" data-cmd="text">Текст</button>
+        <button class="mode-btn" data-cmd="image1">Image1</button>
+        <button class="mode-btn" data-cmd="image15">Image15</button>
+        <button class="mode-btn" data-cmd="dalle">DALL-E</button>
+        <button class="mode-btn" data-cmd="create">Create</button>
+        <button class="mode-btn" data-cmd="dalle_gen">DALL-E Gen</button>
+        <button class="mode-btn" data-cmd="rag_text">RAG</button>
+        <button class="mode-btn" data-cmd="rag_add">RAG Add</button>
+        <button class="mode-btn" data-cmd="rag_index">RAG Index</button>
+        <button class="mode-btn" data-cmd="rag_list">RAG List</button>
+        <button class="mode-btn" id="btnRagDelete">RAG Delete</button>
+        <button class="mode-btn" data-cmd="rag_clear">RAG Clear</button>
+        <button class="mode-btn" data-cmd="clear">Clear</button>
+        <button class="mode-btn" data-cmd="help">Help</button>
+    </div>
+    <div class="chat-area" id="chatArea"></div>
+    <div class="input-area">
+        <div class="input-row">
+            <textarea id="textInput" placeholder="Сообщение или команда..." rows="1"></textarea>
+            <button class="btn-send" id="btnSend">Отправить</button>
+        </div>
+        <div class="file-actions">
+            <label><input type="file" id="fileImages" accept="image/*" multiple> 📷 Изображения</label>
+            <label><input type="file" id="fileDoc" accept=".txt,.pdf,.xlsx,.docx,.md"> 📄 Документ</label>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const chatArea = document.getElementById('chatArea');
+const textInput = document.getElementById('textInput');
+const btnSend = document.getElementById('btnSend');
+const fileImages = document.getElementById('fileImages');
+const fileDoc = document.getElementById('fileDoc');
+
+function addMsg(content, isUser, type = 'text', imageB64 = null, sources = null) {
+    const div = document.createElement('div');
+    div.className = 'msg ' + (isUser ? 'user' : 'bot');
+    if (type === 'image' && imageB64) {
+        div.innerHTML = '<img src="data:image/png;base64,' + imageB64 + '" alt="result">' +
+            (content ? '<div class="sources">' + content + '</div>' : '') +
+            (sources ? '<div class="sources">📎 ' + sources + '</div>' : '');
+    } else {
+        div.textContent = content;
+        if (sources) div.innerHTML += '<div class="sources">📎 ' + sources + '</div>';
+    }
+    chatArea.appendChild(div);
+    chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+async function runCommand(cmd) {
+    btnSend.disabled = true;
+    const fd = new FormData();
+    fd.append('command', cmd);
+    try {
+        const r = await fetch('/api/command', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (data.ok) addMsg(data.message, false);
+        else addMsg('Ошибка: ' + (data.error || 'неизвестно'), false);
+    } catch (e) {
+        addMsg('Ошибка: ' + e.message, false);
+    }
+    btnSend.disabled = false;
+}
+
+async function sendMessage(text, images = []) {
+    if (!text.trim() && images.length === 0) return;
+    const userText = text.trim();
+    addMsg(userText || '(изображения)', true);
+    textInput.value = '';
+    btnSend.disabled = true;
+    const fd = new FormData();
+    fd.append('text', userText);
+    images.forEach((f, i) => fd.append('images[]', f));
+    try {
+        const r = await fetch('/api/send', { method: 'POST', body: fd });
+        const data = await r.json();
+        if (data.ok) {
+            if (data.type === 'image') {
+                addMsg(data.usage || '', false, 'image', data.image_b64, data.sources);
+            } else {
+                addMsg(data.message, false, 'text', null, data.sources);
+            }
+        } else {
+            addMsg('Ошибка: ' + (data.error || 'неизвестно'), false);
+        }
+    } catch (e) {
+        addMsg('Ошибка: ' + e.message, false);
+    }
+    btnSend.disabled = false;
+}
+
+async function uploadDoc(file) {
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const data = await r.json();
+        addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
+    } catch (e) {
+        addMsg('Ошибка: ' + e.message, false);
+    }
+}
+
+async function uploadImages(files) {
+    const fd = new FormData();
+    for (const f of files) fd.append('file', f);
+    try {
+        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const data = await r.json();
+        addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
+    } catch (e) {
+        addMsg('Ошибка: ' + e.message, false);
+    }
+}
+
+document.querySelectorAll('.mode-btn[data-cmd]').forEach(btn => {
+    btn.addEventListener('click', () => runCommand(btn.dataset.cmd));
+});
+
+document.getElementById('btnRagDelete').addEventListener('click', async () => {
+    const source = prompt('Имя источника для удаления (из /rag_list):');
+    if (!source) return;
+    const fd = new FormData();
+    fd.append('source', source);
+    try {
+        const r = await fetch('/api/rag_delete', { method: 'POST', body: fd });
+        const data = await r.json();
+        addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
+    } catch (e) {
+        addMsg('Ошибка: ' + e.message, false);
+    }
+});
+
+btnSend.addEventListener('click', () => {
+    sendMessage(textInput.value);
+});
+
+textInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage(textInput.value);
+    }
+});
+
+fileImages.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length) uploadImages(files);
+    e.target.value = '';
+});
+
+fileDoc.addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    if (f) uploadDoc(f);
+    e.target.value = '';
+});
+
+addMsg('Нажмите /start или выберите режим. Введите /help для справки.', false);
+</script>
+{% endblock %}
