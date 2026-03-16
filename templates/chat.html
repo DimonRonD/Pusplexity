@@ -14,7 +14,8 @@
             align-items: center;
             justify-content: space-between;
         }
-        .chat-header h1 { font-size: 1.1rem; font-weight: 600; }
+        .chat-header h1 { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+        .chat-header .logo { height: 28px; width: auto; }
         .chat-header .user { color: var(--text-muted); font-size: 0.85rem; }
         .chat-header a {
             color: var(--text-muted);
@@ -130,7 +131,7 @@
 {% block content %}
 <div class="chat-layout">
     <header class="chat-header">
-        <h1>🖼 Pusplexity</h1>
+        <h1><img src="{{ url_for('static', filename='pusplexity_logo.jpeg') }}" alt="Pusplexity" class="logo"> Pusplexity</h1>
         <span class="user">{{ session.email }}</span>
         <a href="{{ url_for('logout') }}">Выйти</a>
     </header>

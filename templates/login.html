@@ -16,6 +16,12 @@
             width: 100%;
             max-width: 380px;
         }
+        .login-logo {
+            display: block;
+            max-width: 180px;
+            height: auto;
+            margin: 0 auto 1.25rem;
+        }
         .login-box h1 {
             font-size: 1.5rem;
             font-weight: 600;
@@ -76,7 +82,8 @@
 {% block content %}
 <div class="login-wrap">
     <div class="login-box">
-        <h1>🖼 Pusplexity</h1>
+        <img src="{{ url_for('static', filename='pusplexity_logo.jpeg') }}" alt="Pusplexity" class="login-logo">
+        <h1>Pusplexity</h1>
         <p class="subtitle">Вход в веб-интерфейс</p>
         {% if error %}
         <div class="error">{{ error }}</div>
