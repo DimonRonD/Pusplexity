@@ -27,7 +27,7 @@ services:
       - bot_documents:/app/data
       - chroma_data:/app/chroma_db
       - ./users.txt:/app/users.txt
-    command: ["gunicorn", "-w", "1", "-b", "0.0.0.0:5000", "--timeout", "300", "web_app:app"]
+    command: ["gunicorn", "-w", "1", "-k", "gevent", "-b", "0.0.0.0:5000", "--timeout", "300", "--keep-alive", "5", "web_app:app"]
 
 volumes:
   bot_data:
