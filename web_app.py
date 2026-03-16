@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ImageBot — веб-интерфейс на Flask.
+Pusplexity — веб-интерфейс на Flask.
 Полностью повторяет функционал Telegram-бота.
 Вход по email и паролю (users.txt).
 """
@@ -205,7 +205,7 @@ def api_command():
     if cmd == "start":
         _set_model("gpt-5.2")
         return {"ok": True, "message": (
-            "🖼 ImageBot\n\nРежим по умолчанию: gpt-5.2 (чат)\n\n"
+            "🖼 Pusplexity\n\nРежим по умолчанию: gpt-5.2 (чат)\n\n"
             "◾ /text — чат, анализ 1 фото, контекст из документов\n"
             "◾ /image1, /image15, /dalle — редактирование фото\n"
             "◾ /create, /dalle_gen — генерация по тексту\n"
@@ -240,7 +240,7 @@ def api_command():
         return {"ok": True, "message": "✅ История /text очищена."}
     if cmd == "help":
         return {"ok": True, "message": (
-            "📖 ImageBot — Справка\n\n"
+            "📖 Pusplexity — Справка\n\n"
             "/text — чат gpt-5.2\n"
             "/image1, /image15, /dalle — редактирование фото\n"
             "/create, /dalle_gen — генерация по тексту\n"

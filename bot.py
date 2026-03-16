@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ImageBot — чат-бот для обработки изображений через OpenAI GPT Image.
+Pusplexity — чат-бот для обработки изображений через OpenAI GPT Image.
 Поддерживает Telegram и CLI-режим.
 """
 
@@ -129,7 +129,7 @@ def run_telegram_bot():
         logger.info("Команда /start от user_id=%s, username=%s", user.id, user.username)
         set_model(context, "gpt-5.2")
         await update.message.reply_text(
-            "🖼 ImageBot\n\n"
+            "🖼 Pusplexity\n\n"
             "Режим по умолчанию: gpt-5.2 (чат)\n\n"
             "◾ /text — чат, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD\n"
             "◾ /image1, /image15, /dalle — редактирование фото\n"
@@ -234,7 +234,7 @@ def run_telegram_bot():
 
     async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
-            "📖 ImageBot — Справка по командам\n\n"
+            "📖 Pusplexity — Справка по командам\n\n"
             "◾ Режимы работы\n"
             "/start — Начало работы (gpt-5.2 по умолчанию).\n"
             "/text — Чат gpt-5.2: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
@@ -993,7 +993,7 @@ def run_cli():
 
     processor = ImageProcessor()
 
-    print("ImageBot — обработка изображений через OpenAI\n")
+    print("Pusplexity — обработка изображений через OpenAI\n")
     print("Введите пути к изображениям (1-10 шт.), через пробел:")
     paths_str = input("> ").strip()
     paths = [Path(p.strip()) for p in paths_str.split() if p.strip()]
@@ -1040,7 +1040,7 @@ if __name__ == "__main__":
     elif mode == "telegram" or mode == "tg":
         run_telegram_bot()
     else:
-        print("ImageBot")
+        print("Pusplexity")
         print("Использование:")
         print("  python bot.py telegram    — запуск Telegram-бота")
         print("  python bot.py cli         — интерактивный режим в консоли")

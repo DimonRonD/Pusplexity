@@ -1,7 +1,7 @@
 services:
-  imagebot:
+  pusplexity:
     build: .
-    container_name: imagebot
+    container_name: pusplexity
     restart: unless-stopped
     env_file: .env
     environment:
@@ -13,9 +13,9 @@ services:
     # Для вывода логов в консоль добавьте -v:
     # command: ["python", "bot.py", "telegram", "-v"]
 
-  imagebot-web:
+  pusplexity-web:
     build: .
-    container_name: imagebot-web
+    container_name: pusplexity-web
     restart: unless-stopped
     env_file: .env
     environment:

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}ImageBot — Чат{% endblock %}
+{% block title %}Pusplexity — Чат{% endblock %}
 {% block extra_css %}
         .chat-layout {
             display: flex;
@@ -130,7 +130,7 @@
 {% block content %}
 <div class="chat-layout">
     <header class="chat-header">
-        <h1>🖼 ImageBot</h1>
+        <h1>🖼 Pusplexity</h1>
         <span class="user">{{ session.email }}</span>
         <a href="{{ url_for('logout') }}">Выйти</a>
     </header>

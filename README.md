@@ -1,4 +1,4 @@
-# ImageBot
+# Pusplexity
 
 Telegram-бот для работы с изображениями через OpenAI GPT Image API и RAG-базы знаний на ChromaDB. Поддерживает редактирование и генерацию изображений, а также семантический поиск по документам с ответами в контексте.
 
@@ -46,7 +46,7 @@ pip install -r requirements.txt
 ## Структура проекта
 
 ```
-ImageBot/
+Pusplexity/
 ├── bot.py              # Telegram-бот и CLI
 ├── web_app.py          # Веб-интерфейс Flask
 ├── auth.py             # Аутентификация (users.txt)
@@ -88,20 +88,20 @@ docker compose up -d
 
 Отладка с выводом логов:
 ```bash
-docker compose run --rm imagebot python bot.py telegram -v
+docker compose run --rm pusplexity python bot.py telegram -v
 ```
 
 Запуск только веб-интерфейса:
 ```bash
-docker compose up -d imagebot-web
+docker compose up -d pusplexity-web
 # http://localhost:5000
 ```
 
 **Dockerfile** — образ на `python:3.13-slim`, включает бота и веб-интерфейс. Оба сервиса используют один образ с разными командами.
 
 **Сервисы:**
-- `imagebot` — Telegram-бот
-- `imagebot-web` — веб-интерфейс Flask (порт 5000)
+- `pusplexity` — Telegram-бот
+- `pusplexity-web` — веб-интерфейс Flask (порт 5000)
 
 **Структура volumes (docker-compose):**
 
@@ -110,7 +110,7 @@ docker compose up -d imagebot-web
 | `bot_data` | `/data` | Состояние бота (persistence), `bot_data.pickle` |
 | `bot_documents` | `/app/data` | Загруженные документы для RAG (общий для бота и веб) |
 | `chroma_data` | `/app/chroma_db` | Векторная база ChromaDB (общая для бота и веб) |
-| `./users.txt` | `/app/users.txt` | Пары email:пароль для веб-входа (только imagebot-web) |
+| `./users.txt` | `/app/users.txt` | Пары email:пароль для веб-входа (только pusplexity-web) |
 
 Данные в volumes сохраняются между перезапусками контейнера. Перед запуском добавьте пользователей в `users.txt`.
 

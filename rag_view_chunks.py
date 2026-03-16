@@ -34,8 +34,8 @@ def get_collection(persist_dir: Path):
         settings=Settings(anonymized_telemetry=False),
     )
     return client.get_or_create_collection(
-        name="imagebot_rag",
-        metadata={"description": "RAG collection for ImageBot"},
+        name="pusplexity_rag",
+        metadata={"description": "RAG collection for Pusplexity"},
     )
 
 

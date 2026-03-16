@@ -120,8 +120,8 @@ class RAGStore:
         from chromadb.config import Settings
         client = chromadb.PersistentClient(path=str(self.persist_dir), settings=Settings(anonymized_telemetry=False))
         return client.get_or_create_collection(
-            name="imagebot_rag",
-            metadata={"description": "RAG collection for ImageBot"},
+            name="pusplexity_rag",
+            metadata={"description": "RAG collection for Pusplexity"},
         )
 
     @property
