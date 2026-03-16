@@ -18,6 +18,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    Response,
     session,
     url_for,
 )
@@ -148,9 +149,8 @@ def health():
 
 @app.route("/")
 def index():
-    if "email" not in session:
-        return redirect(url_for("login"))
-    return redirect(url_for("chat"))
+    # Редирект без session — /login сам перенаправит в /chat при авторизации
+    return Response(status=302, headers={"Location": "/login"})
 
 
 @app.route("/login", methods=["GET", "POST"])
