@@ -308,6 +308,15 @@ def api_command():
         if not sources:
             return {"ok": True, "message": "Хранилище RAG пусто. Используйте /rag_add и /rag_index."}
         return {"ok": True, "message": "📚 Источники:\n\n" + "\n".join(f"• {s}" for s in sources)}
+    if cmd == "rag_text":
+        _set_model("rag_text")
+        ud["rag_add_mode"] = False
+        _save_user_data()
+        return {"ok": True, "message": (
+            "✅ Режим RAG включён.\n\n"
+            "Задавайте вопросы — ответы будут сформированы на основе документов из хранилища.\n"
+            "Для смены режима выберите другой режим в панели."
+        )}
     if cmd == "rag_clear":
         ud["rag_chat_history"] = []
         _save_user_data()
