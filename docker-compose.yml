@@ -22,8 +22,20 @@ services:
       - USERS_FILE=/app/users.txt
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-this-secret-in-production}
       - USER_DB_PATH=/app/db
-    ports:
-      - "5000:5000"
+    # Временный fallback для прямого доступа во время миграции на Traefik.
+    # После проверки https://pusplexity.dimonrond.ru удалите этот проброс.
+    # ports:
+    #   - "5000:5000"
+    networks:
+      - default
+      - n8n_default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_default
+      - traefik.http.routers.pusplexity.rule=Host(`pusplexity.dimonrond.ru`)
+      - traefik.http.routers.pusplexity.entrypoints=websecure
+      - traefik.http.routers.pusplexity.tls=true
+      - traefik.http.services.pusplexity.loadbalancer.server.port=5000
     volumes:
       - bot_documents:/app/data
       - chroma_data:/app/chroma_db
@@ -36,3 +48,7 @@ volumes:
   bot_documents:
   chroma_data:
   user_db:
+
+networks:
+  n8n_default:
+    external: true
