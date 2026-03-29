@@ -35,6 +35,8 @@ services:
       - traefik.http.routers.pusplexity.rule=Host(`pusplexity.dimonrond.ru`)
       - traefik.http.routers.pusplexity.entrypoints=websecure
       - traefik.http.routers.pusplexity.tls=true
+      # Тот же certresolver, что у Traefik для n8n (иначе — самоподписанный cert и SEC_E_UNTRUSTED_ROOT в браузере).
+      - traefik.http.routers.pusplexity.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
       - traefik.http.services.pusplexity.loadbalancer.server.port=5000
     volumes:
       - bot_documents:/app/data
