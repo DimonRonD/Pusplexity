@@ -173,6 +173,23 @@ const btnSend = document.getElementById('btnSend');
 const fileImages = document.getElementById('fileImages');
 const fileDoc = document.getElementById('fileDoc');
 
+async function parseApiResponse(response) {
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (contentType.includes('application/json')) {
+        return await response.json();
+    }
+    const text = await response.text();
+    if (response.status === 401) {
+        throw new Error('Сессия истекла. Обновите страницу и войдите снова.');
+    }
+    if (response.status === 413) {
+        throw new Error('Файл слишком большой. Максимум 50 МБ.');
+    }
+    // Сервер/прокси вернул HTML (например, редирект или страницу ошибки), а не JSON API.
+    const preview = (text || '').replace(/\s+/g, ' ').slice(0, 120);
+    throw new Error(`Сервер вернул не-JSON ответ (${response.status}). ${preview}`);
+}
+
 function addMsg(content, isUser, type = 'text', imageB64 = null, sources = null) {
     const div = document.createElement('div');
     div.className = 'msg ' + (isUser ? 'user' : 'bot');
@@ -194,7 +211,7 @@ async function runCommand(cmd) {
     fd.append('command', cmd);
     try {
         const r = await fetch('/api/command', { method: 'POST', body: fd });
-        const data = await r.json();
+        const data = await parseApiResponse(r);
         if (data.ok) addMsg(data.message, false);
         else addMsg('Ошибка: ' + (data.error || 'неизвестно'), false);
     } catch (e) {
@@ -214,7 +231,7 @@ async function sendMessage(text, images = []) {
     images.forEach((f, i) => fd.append('images[]', f));
     try {
         const r = await fetch('/api/send', { method: 'POST', body: fd });
-        const data = await r.json();
+        const data = await parseApiResponse(r);
         if (data.ok) {
             if (data.type === 'image') {
                 addMsg(data.usage || '', false, 'image', data.image_b64, data.sources);
@@ -235,7 +252,7 @@ async function uploadDoc(file) {
     fd.append('file', file);
     try {
         const r = await fetch('/api/upload', { method: 'POST', body: fd });
-        const data = await r.json();
+        const data = await parseApiResponse(r);
         addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
     } catch (e) {
         addMsg('Ошибка: ' + e.message, false);
@@ -247,7 +264,7 @@ async function uploadImages(files) {
     for (const f of files) fd.append('file', f);
     try {
         const r = await fetch('/api/upload', { method: 'POST', body: fd });
-        const data = await r.json();
+        const data = await parseApiResponse(r);
         addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
     } catch (e) {
         addMsg('Ошибка: ' + e.message, false);
@@ -265,7 +282,7 @@ document.getElementById('btnRagDelete').addEventListener('click', async () => {
     fd.append('source', source);
     try {
         const r = await fetch('/api/rag_delete', { method: 'POST', body: fd });
-        const data = await r.json();
+        const data = await parseApiResponse(r);
         addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
     } catch (e) {
         addMsg('Ошибка: ' + e.message, false);

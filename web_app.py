@@ -25,6 +25,7 @@ from flask import (
     url_for,
 )
 from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
 
 from auth import verify_credentials
 from dotenv import load_dotenv
@@ -38,6 +39,14 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-produc
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
 logger = logging.getLogger(__name__)
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(_e):
+    """Для API всегда возвращаем JSON, чтобы фронтенд не падал на HTML-ошибке."""
+    if request.path.startswith("/api/"):
+        return {"ok": False, "error": "Файл слишком большой. Максимум 50 МБ."}, 413
+    return "Файл слишком большой. Максимум 50 МБ.", 413
 
 # Кэш в памяти (pending_images, rag_add_mode — сессионные)
 _user_cache: dict[str, dict] = {}
