@@ -20,6 +20,13 @@ Pusplexity — Telegram-бот и веб-интерфейс (Flask) для ра�
 - **Управление источниками** — список, удаление с очисткой ChromaDB
 - **Память диалога** — 20 последних сообщений в /text и /rag_text
 
+### Веб-интерфейс
+
+- **Красивый рендер ответов** — Markdown в HTML (заголовки, списки, code blocks, ссылки)
+- **Поддержка Markdown-цитат и таблиц** — blockquote (`>`) и таблицы с выравниванием `:---`, `---:`, `:---:`
+- **Безопасная обработка API-ошибок** — корректные сообщения при не-JSON ответах и просроченной сессии
+- **Лимит загрузки файлов** — до 50 МБ с понятной ошибкой в UI
+
 ## Требования
 
 - Python 3.10+
@@ -42,6 +49,7 @@ pip install -r requirements.txt
 2. Заполните переменные:
    - `OPENAI_API_KEY` — ключ из [OpenAI Platform](https://platform.openai.com/api-keys)
    - `TELEGRAM_BOT_TOKEN` — токен от [@BotFather](https://t.me/BotFather)
+   - `TRAEFIK_CERT_RESOLVER` — имя ACME-resolver в Traefik (например `mytlschallenge`) для HTTPS-роутинга
 
 ## Структура проекта
 
@@ -97,6 +105,13 @@ docker compose run --rm pusplexity python bot.py telegram -v
 ```bash
 docker compose up -d pusplexity-web
 # http://localhost:5000
+```
+
+Развёртывание на сервере за Traefik (HTTPS):
+```bash
+# В .env укажите resolver из Traefik:
+# TRAEFIK_CERT_RESOLVER=mytlschallenge
+docker compose up -d --build pusplexity-web
 ```
 
 **Dockerfile** — образ на `python:3.13-slim`, включает бота и веб-интерфейс. Оба сервиса используют один образ с разными командами.
@@ -177,6 +192,21 @@ python bot.py cli
 5. `/text` или другая команда → выход из режима RAG
 
 ## API
+
+### Ограничения API
+
+- Максимальный размер входящего файла: **50 МБ** (`MAX_CONTENT_LENGTH` во Flask).
+- Для `/api/*` ошибки размера файла возвращаются в JSON (`413`), чтобы фронтенд показывал читаемое сообщение.
+
+### Обновление на Ubuntu-сервере
+
+```bash
+cd /opt/Pusplexity
+git pull origin main
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail=100 pusplexity-web
+```
 
 ### Обработка изображений
 
