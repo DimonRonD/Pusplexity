@@ -357,8 +357,10 @@ function markdownToHtml(md) {
 
     // Fallback: если после основных правил остались одиночные маркеры,
     // превращаем их в списки и склеиваем соседние одинаковые блоки.
-    html = html.replace(/(^|\n)\s*[-*•]\s+(.+?)(?=\n|$)/g, '$1<ul><li>$2</li></ul>');
-    html = html.replace(/(^|\n)\s*\d+\.\s+(.+?)(?=\n|$)/g, '$1<ol><li>$2</li></ol>');
+    // Важный кейс: маркер может идти сразу после </ul>/<ol> без явного перевода строки.
+    html = html.replace(/<\/(ul|ol)>\s*(?=[-*•]\s+|\d+\.\s+)/g, '</$1>\n');
+    html = html.replace(/(^|\n|<\/(?:ul|ol)>)\s*[-*•]\s+(.+?)(?=\n|$)/g, '$1<ul><li>$2</li></ul>');
+    html = html.replace(/(^|\n|<\/(?:ul|ol)>)\s*\d+\.\s+(.+?)(?=\n|$)/g, '$1<ol><li>$2</li></ol>');
     html = html.replace(/<\/ul>\s*<ul>/g, '');
     html = html.replace(/<\/ol>\s*<ol>/g, '');
 
