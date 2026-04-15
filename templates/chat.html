@@ -363,6 +363,11 @@ function markdownToHtml(md) {
     html = html.replace(new RegExp(`<\\/(ul|ol)>\\s*(?=[${BULLET_MARKERS}]\\s+|\\d+\\.\\s+)`, 'g'), '</$1>\n');
     html = html.replace(new RegExp(`(^|\\n|<\\/(?:ul|ol)>)\\s*[${BULLET_MARKERS}]\\s+(.+?)(?=\\n|$)`, 'g'), '$1<ul><li>$2</li></ul>');
     html = html.replace(/(^|\n|<\/(?:ul|ol)>)\s*\d+\.\s+(.+?)(?=\n|$)/g, '$1<ol><li>$2</li></ol>');
+    // Случай "через один": <ul>...</ul> - пункт <ul>...</ul>
+    html = html.replace(new RegExp(`</ul>\\s*[${BULLET_MARKERS}]\\s+([\\s\\S]*?)(?=\\s*<ul>)`, 'g'), '</ul><ul><li>$1</li></ul>');
+    html = html.replace(/<\/ol>\s*\d+\.\s+([\s\S]*?)(?=\s*<ol>)/g, '</ol><ol><li>$1</li></ol>');
+    html = html.replace(new RegExp(`</ul>\\s*[${BULLET_MARKERS}]\\s+([\\s\\S]*?)$`, 'g'), '</ul><ul><li>$1</li></ul>');
+    html = html.replace(/<\/ol>\s*\d+\.\s+([\s\S]*?)$/g, '</ol><ol><li>$1</li></ol>');
     html = html.replace(/<\/ul>\s*<ul>/g, '');
     html = html.replace(/<\/ol>\s*<ol>/g, '');
 
