@@ -251,12 +251,14 @@ function escapeHtml(text) {
 
 function markdownToHtml(md) {
     if (!md) return '';
+    const BULLET_MARKERS = '-*•–—−';
     const normalizedMd = String(md)
+        .replace(/\r\n?/g, '\n')
         .split('\n')
         .map((line) => {
             // Нормализуем пункты, которые модель иногда отдаёт как "- ..." в кавычках.
-            let out = line.replace(/^(\s*)["“”']\s*([-*•]|\d+\.)\s+(.*?)\s*["“”']\s*$/, '$1$2 $3');
-            out = out.replace(/^(\s*)["“”']\s*([-*•])\s+/, '$1$2 ');
+            let out = line.replace(new RegExp(`^(\\s*)["“”']\\s*([${BULLET_MARKERS}]|\\d+\\.)\\s+(.*?)\\s*["“”']\\s*$`), '$1$2 $3');
+            out = out.replace(new RegExp(`^(\\s*)["“”']\\s*([${BULLET_MARKERS}])\\s+`), '$1$2 ');
             out = out.replace(/^(\s*)["“”']\s*(\d+\.)\s+/, '$1$2 ');
             return out;
         })
@@ -331,12 +333,12 @@ function markdownToHtml(md) {
         return `\n<blockquote>${quote}</blockquote>\n`;
     });
 
-    // unordered lists (поддержка '-', '*', '•')
-    html = html.replace(/(?:^|\n)(?:\s*[-*•]\s+.+(?:\n|$))+/g, (block) => {
+    // unordered lists (поддержка '-', '*', '•' и unicode-dash вариантов)
+    html = html.replace(new RegExp(`(?:^|\\n)(?:\\s*[${BULLET_MARKERS}]\\s+.+(?:\\n|$))+`, 'g'), (block) => {
         const items = block
             .trim()
             .split('\n')
-            .map((line) => line.replace(/^\s*[-*•]\s+/, '').trim())
+            .map((line) => line.replace(new RegExp(`^\\s*[${BULLET_MARKERS}]\\s+`), '').trim())
             .filter(Boolean)
             .map((item) => `<li>${item}</li>`)
             .join('');
@@ -358,8 +360,8 @@ function markdownToHtml(md) {
     // Fallback: если после основных правил остались одиночные маркеры,
     // превращаем их в списки и склеиваем соседние одинаковые блоки.
     // Важный кейс: маркер может идти сразу после </ul>/<ol> без явного перевода строки.
-    html = html.replace(/<\/(ul|ol)>\s*(?=[-*•]\s+|\d+\.\s+)/g, '</$1>\n');
-    html = html.replace(/(^|\n|<\/(?:ul|ol)>)\s*[-*•]\s+(.+?)(?=\n|$)/g, '$1<ul><li>$2</li></ul>');
+    html = html.replace(new RegExp(`<\\/(ul|ol)>\\s*(?=[${BULLET_MARKERS}]\\s+|\\d+\\.\\s+)`, 'g'), '</$1>\n');
+    html = html.replace(new RegExp(`(^|\\n|<\\/(?:ul|ol)>)\\s*[${BULLET_MARKERS}]\\s+(.+?)(?=\\n|$)`, 'g'), '$1<ul><li>$2</li></ul>');
     html = html.replace(/(^|\n|<\/(?:ul|ol)>)\s*\d+\.\s+(.+?)(?=\n|$)/g, '$1<ol><li>$2</li></ol>');
     html = html.replace(/<\/ul>\s*<ul>/g, '');
     html = html.replace(/<\/ol>\s*<ol>/g, '');
