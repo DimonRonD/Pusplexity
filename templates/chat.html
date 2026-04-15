@@ -322,11 +322,11 @@ function markdownToHtml(md) {
     });
 
     // unordered lists (поддержка '-', '*', '•')
-    html = html.replace(/(?:^|\n)(?:[-*•] .+(?:\n|$))+?/g, (block) => {
+    html = html.replace(/(?:^|\n)(?:\s*[-*•]\s+.+(?:\n|$))+/g, (block) => {
         const items = block
             .trim()
             .split('\n')
-            .map((line) => line.replace(/^[-*•]\s+/, '').trim())
+            .map((line) => line.replace(/^\s*[-*•]\s+/, '').trim())
             .filter(Boolean)
             .map((item) => `<li>${item}</li>`)
             .join('');
@@ -334,11 +334,11 @@ function markdownToHtml(md) {
     });
 
     // ordered lists
-    html = html.replace(/(?:^|\n)(?:\d+\. .+(?:\n|$))+?/g, (block) => {
+    html = html.replace(/(?:^|\n)(?:\s*\d+\.\s+.+(?:\n|$))+/g, (block) => {
         const items = block
             .trim()
             .split('\n')
-            .map((line) => line.replace(/^\d+\.\s+/, '').trim())
+            .map((line) => line.replace(/^\s*\d+\.\s+/, '').trim())
             .filter(Boolean)
             .map((item) => `<li>${item}</li>`)
             .join('');
