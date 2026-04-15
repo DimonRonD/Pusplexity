@@ -69,6 +69,56 @@
             background: var(--bg-panel);
             border: 1px solid var(--border);
         }
+        .msg.bot p { margin: 0.5rem 0; }
+        .msg.bot p:first-child { margin-top: 0; }
+        .msg.bot p:last-child { margin-bottom: 0; }
+        .msg.bot ul, .msg.bot ol { margin: 0.4rem 0 0.4rem 1.2rem; }
+        .msg.bot blockquote {
+            margin: 0.55rem 0;
+            padding: 0.35rem 0.7rem;
+            border-left: 3px solid var(--accent);
+            color: var(--text-muted);
+            background: rgba(127, 127, 127, 0.08);
+            border-radius: 0 6px 6px 0;
+        }
+        .msg.bot table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.55rem 0;
+            font-size: 0.9rem;
+        }
+        .msg.bot th, .msg.bot td {
+            border: 1px solid var(--border);
+            padding: 0.35rem 0.5rem;
+            text-align: left;
+            vertical-align: top;
+        }
+        .msg.bot th {
+            background: rgba(127, 127, 127, 0.12);
+            font-weight: 600;
+        }
+        .msg.bot h1, .msg.bot h2, .msg.bot h3 { margin: 0.6rem 0 0.4rem; line-height: 1.25; }
+        .msg.bot code {
+            background: rgba(127, 127, 127, 0.18);
+            padding: 0.08rem 0.3rem;
+            border-radius: 4px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 0.9em;
+        }
+        .msg.bot pre {
+            margin: 0.55rem 0;
+            padding: 0.6rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow-x: auto;
+            background: rgba(127, 127, 127, 0.12);
+            white-space: pre;
+        }
+        .msg.bot pre code {
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+        }
         .msg img { max-width: 100%; border-radius: 8px; display: block; margin-top: 0.5rem; }
         .msg .sources { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem; }
         .input-area {
@@ -190,6 +240,127 @@ async function parseApiResponse(response) {
     throw new Error(`Сервер вернул не-JSON ответ (${response.status}). ${preview}`);
 }
 
+function escapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function markdownToHtml(md) {
+    if (!md) return '';
+    let html = escapeHtml(md);
+
+    function splitRow(line) {
+        const trimmed = line.trim().replace(/^\||\|$/g, '');
+        return trimmed.split('|').map((cell) => cell.trim());
+    }
+
+    function isDividerCell(cell) {
+        return /^:?-{3,}:?$/.test(cell);
+    }
+
+    function alignmentFromDivider(cell) {
+        const left = cell.startsWith(':');
+        const right = cell.endsWith(':');
+        if (left && right) return 'center';
+        if (right) return 'right';
+        return 'left';
+    }
+
+    function parseTableBlock(block) {
+        const lines = block
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean);
+        if (lines.length < 2) return null;
+        if (!lines[0].includes('|') || !lines[1].includes('|')) return null;
+
+        const header = splitRow(lines[0]);
+        const divider = splitRow(lines[1]);
+        if (!header.length || header.length !== divider.length) return null;
+        if (!divider.every(isDividerCell)) return null;
+        const alignments = divider.map(alignmentFromDivider);
+
+        const bodyLines = lines.slice(2).filter((line) => line.includes('|'));
+        const bodyRows = bodyLines.map((line) => {
+            const row = splitRow(line);
+            while (row.length < header.length) row.push('');
+            return row.slice(0, header.length);
+        });
+
+        const thead = `<thead><tr>${header.map((h, i) => `<th style="text-align:${alignments[i]}">${h}</th>`).join('')}</tr></thead>`;
+        const tbody = bodyRows.length
+            ? `<tbody>${bodyRows.map((row) => `<tr>${row.map((c, i) => `<td style="text-align:${alignments[i]}">${c}</td>`).join('')}</tr>`).join('')}</tbody>`
+            : '<tbody></tbody>';
+        return `<table>${thead}${tbody}</table>`;
+    }
+
+    // fenced code blocks
+    html = html.replace(/```([\s\S]*?)```/g, (_m, code) => `<pre><code>${code.trim()}</code></pre>`);
+    // inline code
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // links
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    // emphasis
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    // headings
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    // blockquote
+    html = html.replace(/(?:^|\n)(?:> .+(?:\n|$))+?/g, (block) => {
+        const quote = block
+            .trim()
+            .split('\n')
+            .map((line) => line.replace(/^>\s?/, ''))
+            .join('<br>');
+        return `\n<blockquote>${quote}</blockquote>\n`;
+    });
+
+    // unordered lists
+    html = html.replace(/(?:^|\n)(?:[-*] .+(?:\n|$))+?/g, (block) => {
+        const items = block
+            .trim()
+            .split('\n')
+            .map((line) => line.replace(/^[-*]\s+/, '').trim())
+            .filter(Boolean)
+            .map((item) => `<li>${item}</li>`)
+            .join('');
+        return items ? `\n<ul>${items}</ul>\n` : block;
+    });
+
+    // ordered lists
+    html = html.replace(/(?:^|\n)(?:\d+\. .+(?:\n|$))+?/g, (block) => {
+        const items = block
+            .trim()
+            .split('\n')
+            .map((line) => line.replace(/^\d+\.\s+/, '').trim())
+            .filter(Boolean)
+            .map((item) => `<li>${item}</li>`)
+            .join('');
+        return items ? `\n<ol>${items}</ol>\n` : block;
+    });
+
+    // paragraphs and line breaks
+    html = html
+        .split(/\n{2,}/)
+        .map((part) => {
+            const p = part.trim();
+            if (!p) return '';
+            const table = parseTableBlock(p);
+            if (table) return table;
+            if (/^<(h\d|ul|ol|pre|blockquote|table)/.test(p)) return p;
+            return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+        })
+        .join('');
+
+    return html;
+}
+
 function addMsg(content, isUser, type = 'text', imageB64 = null, sources = null) {
     const div = document.createElement('div');
     div.className = 'msg ' + (isUser ? 'user' : 'bot');
@@ -198,8 +369,12 @@ function addMsg(content, isUser, type = 'text', imageB64 = null, sources = null)
             (content ? '<div class="sources">' + content + '</div>' : '') +
             (sources ? '<div class="sources">📎 ' + sources + '</div>' : '');
     } else {
-        div.textContent = content;
-        if (sources) div.innerHTML += '<div class="sources">📎 ' + sources + '</div>';
+        if (isUser) {
+            div.textContent = content;
+        } else {
+            div.innerHTML = markdownToHtml(content);
+        }
+        if (sources) div.innerHTML += '<div class="sources">📎 ' + escapeHtml(sources) + '</div>';
     }
     chatArea.appendChild(div);
     chatArea.scrollTop = chatArea.scrollHeight;
