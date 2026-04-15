@@ -355,6 +355,13 @@ function markdownToHtml(md) {
         return items ? `\n<ol>${items}</ol>\n` : block;
     });
 
+    // Fallback: если после основных правил остались одиночные маркеры,
+    // превращаем их в списки и склеиваем соседние одинаковые блоки.
+    html = html.replace(/(^|\n)\s*[-*•]\s+(.+?)(?=\n|$)/g, '$1<ul><li>$2</li></ul>');
+    html = html.replace(/(^|\n)\s*\d+\.\s+(.+?)(?=\n|$)/g, '$1<ol><li>$2</li></ol>');
+    html = html.replace(/<\/ul>\s*<ul>/g, '');
+    html = html.replace(/<\/ol>\s*<ol>/g, '');
+
     // paragraphs and line breaks
     html = html
         .split(/\n{2,}/)
