@@ -321,12 +321,12 @@ function markdownToHtml(md) {
         return `\n<blockquote>${quote}</blockquote>\n`;
     });
 
-    // unordered lists
-    html = html.replace(/(?:^|\n)(?:[-*] .+(?:\n|$))+?/g, (block) => {
+    // unordered lists (поддержка '-', '*', '•')
+    html = html.replace(/(?:^|\n)(?:[-*•] .+(?:\n|$))+?/g, (block) => {
         const items = block
             .trim()
             .split('\n')
-            .map((line) => line.replace(/^[-*]\s+/, '').trim())
+            .map((line) => line.replace(/^[-*•]\s+/, '').trim())
             .filter(Boolean)
             .map((item) => `<li>${item}</li>`)
             .join('');
