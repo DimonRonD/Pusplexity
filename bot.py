@@ -677,9 +677,8 @@ def run_telegram_bot():
             if not text:
                 await message.reply_text("Введите вопрос для поиска в RAG.")
                 return
-            if len(text) > 2000:
-                text = text[:2000] + "\n\n[... обрезано]"
-            await _process_rag_query(update, context, text)
+            for text_part in chunk_text(text, TELEGRAM_MAX_MESSAGE):
+                await _process_rag_query(update, context, text_part)
             return
 
         # Режим create: только текст, без изображений
@@ -711,11 +710,12 @@ def run_telegram_bot():
             if not text:
                 await message.reply_text("Введите сообщение или отправьте фото с подписью.")
                 return
-            if len(text) > 4000:
-                text = text[:4000] + "\n\n[... обрезано]"
-                await message.reply_text("Промпт обрезан до 4000 символов.")
             context.user_data["pending_images"] = []
-            await process_and_reply(update, context, images, text)
+            text_parts = chunk_text(text, TELEGRAM_MAX_MESSAGE)
+            for idx, text_part in enumerate(text_parts):
+                # В текстовом режиме фото допустимо только в первом запросе.
+                part_images = images if idx == 0 else []
+                await process_and_reply(update, context, part_images, text_part)
             return
 
         if not images:

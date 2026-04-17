@@ -378,8 +378,6 @@ def api_send():
     if model == "rag_text":
         if not text:
             return {"ok": False, "error": "Введите вопрос для RAG."}
-        if len(text) > 2000:
-            text = text[:2000] + "\n\n[... обрезано]"
         try:
             store = _get_rag_store()
             results = store.query(text, 5)
@@ -427,8 +425,6 @@ def api_send():
     if model == "gpt-5.2":
         if not text:
             return {"ok": False, "error": "Введите сообщение или отправьте фото с подписью."}
-        if len(text) > 4000:
-            text = text[:4000] + "\n\n[... обрезано]"
         text_history = list(ud.get("text_chat_history", []))
         text_context = ud.get("text_context")
         try:
