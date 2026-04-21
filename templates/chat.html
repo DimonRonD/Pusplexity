@@ -387,7 +387,7 @@ function markdownToHtml(md) {
     return html;
 }
 
-function addMsg(content, isUser, type = 'text', imageB64 = null, sources = null) {
+function addMsg(content, isUser, type = 'text', imageB64 = null, sources = null, model = null) {
     const div = document.createElement('div');
     div.className = 'msg ' + (isUser ? 'user' : 'bot');
     if (type === 'image' && imageB64) {
@@ -401,6 +401,10 @@ function addMsg(content, isUser, type = 'text', imageB64 = null, sources = null)
             div.innerHTML = markdownToHtml(content);
         }
         if (sources) div.innerHTML += '<div class="sources">📎 ' + escapeHtml(sources) + '</div>';
+        if (model && !isUser) div.innerHTML += '<div class="sources">🤖 Модель: ' + escapeHtml(model) + '</div>';
+    }
+    if (type === 'image' && model && !isUser) {
+        div.innerHTML += '<div class="sources">🤖 Модель: ' + escapeHtml(model) + '</div>';
     }
     chatArea.appendChild(div);
     chatArea.scrollTop = chatArea.scrollHeight;
@@ -435,9 +439,9 @@ async function sendMessage(text, images = []) {
         const data = await parseApiResponse(r);
         if (data.ok) {
             if (data.type === 'image') {
-                addMsg(data.usage || '', false, 'image', data.image_b64, data.sources);
+                addMsg(data.usage || '', false, 'image', data.image_b64, data.sources, data.model);
             } else {
-                addMsg(data.message, false, 'text', null, data.sources);
+                addMsg(data.message, false, 'text', null, data.sources, data.model);
             }
         } else {
             addMsg('Ошибка: ' + (data.error || 'неизвестно'), false);

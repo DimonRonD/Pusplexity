@@ -6,6 +6,7 @@
 import base64
 import io
 import logging
+import os
 import time
 from pathlib import Path
 from typing import BinaryIO
@@ -13,6 +14,7 @@ from typing import BinaryIO
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "latest").strip() or "latest"
 
 
 def _format_usage(usage) -> str | None:
@@ -222,7 +224,7 @@ class ImageProcessor:
         image: Path | BinaryIO | bytes,
         prompt: str,
         *,
-        model: str = "gpt-5.2",
+        model: str = TEXT_MODEL,
         history: list[dict] | None = None,
     ) -> str:
         """
@@ -268,7 +270,7 @@ class ImageProcessor:
         self,
         prompt: str,
         *,
-        model: str = "gpt-5.2",
+        model: str = TEXT_MODEL,
         history: list[dict] | None = None,
     ) -> str:
         """
@@ -294,7 +296,7 @@ class ImageProcessor:
         prompt: str,
         context: str,
         *,
-        model: str = "gpt-5.2",
+        model: str = TEXT_MODEL,
         history: list[dict] | None = None,
     ) -> str:
         """

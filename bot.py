@@ -104,9 +104,11 @@ def run_telegram_bot():
     logger.info("Токен загружен, инициализация процессора изображений")
     processor = ImageProcessor()
 
+    LEGACY_TEXT_MODEL = "gpt-5.2"
+    TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "latest").strip() or "latest"
     DEFAULT_MODEL = "gpt-image-1.5"
     MODELS = {
-        "gpt-5.2": "gpt-5.2",
+        TEXT_MODEL: TEXT_MODEL,
         "gpt-image-1": "gpt-image-1",
         "gpt-image-1.5": "gpt-image-1.5",
         "dall-e-2": "dall-e-2",
@@ -122,15 +124,20 @@ def run_telegram_bot():
 
     def get_model(context: ContextTypes.DEFAULT_TYPE) -> str:
         """Возвращает выбранную модель пользователя."""
-        return context.user_data.get("model", DEFAULT_MODEL)
+        model = context.user_data.get("model", DEFAULT_MODEL)
+        if model == LEGACY_TEXT_MODEL:
+            # Мягкая миграция старого значения из persistence.
+            context.user_data["model"] = TEXT_MODEL
+            return TEXT_MODEL
+        return model
 
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         logger.info("Команда /start от user_id=%s, username=%s", user.id, user.username)
-        set_model(context, "gpt-5.2")
+        set_model(context, TEXT_MODEL)
         await update.message.reply_text(
             "🖼 Pusplexity\n\n"
-            "Режим по умолчанию: gpt-5.2 (чат)\n\n"
+            f"Режим по умолчанию: {TEXT_MODEL} (чат)\n\n"
             "◾ /text — чат, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD\n"
             "◾ /image1, /image15, /dalle — редактирование фото\n"
             "◾ /create, /dalle_gen — генерация по тексту\n"
@@ -139,6 +146,7 @@ def run_telegram_bot():
         )
 
     MODEL_LABELS = {
+        TEXT_MODEL: TEXT_MODEL,
         "gpt-image-1": "gpt-image-1",
         "gpt-image-1.5": "gpt-image-1.5",
         "dall-e-2": "DALL-E 2",
@@ -217,9 +225,9 @@ def run_telegram_bot():
         user_data[key] = history[-CHAT_HISTORY_SIZE:]
 
     async def cmd_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        set_model(context, "gpt-5.2")
+        set_model(context, TEXT_MODEL)
         await update.message.reply_text(
-            "✅ Переключено на текстовый режим (gpt-5.2)\n\n"
+            f"✅ Переключено на текстовый режим ({TEXT_MODEL})\n\n"
             "• Чат только текстом\n"
             "• Анализ 1 фото по подписи\n"
             "• Загрузите DOCX, PDF, XLSX, TXT, MD как контекст — затем задавайте вопросы\n\n"
@@ -236,8 +244,8 @@ def run_telegram_bot():
         await update.message.reply_text(
             "📖 Pusplexity — Справка по командам\n\n"
             "◾ Режимы работы\n"
-            "/start — Начало работы (gpt-5.2 по умолчанию).\n"
-            "/text — Чат gpt-5.2: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
+            f"/start — Начало работы ({TEXT_MODEL} по умолчанию).\n"
+            f"/text — Чат {TEXT_MODEL}: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
             "/image1 — gpt-image-1: редактирование 1–10 фото.\n"
             "/image15 — gpt-image-1.5: редактирование 1–10 фото.\n"
             "/dalle — DALL-E 2: редактирование 1 фото.\n"
@@ -382,7 +390,7 @@ def run_telegram_bot():
                 processor.process_text_with_rag_context,
                 query,
                 rag_context,
-                model="gpt-5.2",
+                model=TEXT_MODEL,
                 history=rag_history if rag_history else None,
             )
         except Exception as e:
@@ -399,6 +407,7 @@ def run_telegram_bot():
         else:
             for part in parts:
                 await update.message.reply_text(part)
+        await update.message.reply_text(f"🤖 Модель ответа: {TEXT_MODEL}")
         await update.message.reply_text(f"📎 Источники (score): {sources_line}")
 
     async def cmd_rag_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -434,7 +443,7 @@ def run_telegram_bot():
             return
 
         # Режим /text: загрузка документа как контекст для вопросов
-        if get_model(context) == "gpt-5.2" and ext in TEXT_CONTEXT_EXTENSIONS:
+        if get_model(context) == TEXT_MODEL and ext in TEXT_CONTEXT_EXTENSIONS:
             msg = await update.message.reply_text("⏳ Загружаю документ как контекст…")
             try:
                 with tempfile.TemporaryDirectory() as tmpdir:
@@ -522,7 +531,7 @@ def run_telegram_bot():
             images.append(bytes(await f.download_as_bytearray()))
 
         existing = list(user_data.get("pending_images", []))
-        if model == "gpt-5.2":
+        if model == TEXT_MODEL:
             images = images[:1]  # Текстовый режим: только 1 фото
         else:
             images = existing + images
@@ -609,7 +618,7 @@ def run_telegram_bot():
 
         # Одиночное фото или документ
         images: list[bytes] = list(context.user_data.get("pending_images", []))
-        if get_model(context) == "gpt-5.2":
+        if get_model(context) == TEXT_MODEL:
             images = []  # Текстовый режим: только 1 новое фото
 
         logger.info(
@@ -705,8 +714,8 @@ def run_telegram_bot():
             await process_and_reply(update, context, [], text)
             return
 
-        # Режим text (gpt-5.2): можно только текст ИЛИ текст + 1 фото
-        if get_model(context) == "gpt-5.2":
+        # Режим text (latest): можно только текст ИЛИ текст + 1 фото
+        if get_model(context) == TEXT_MODEL:
             if not text:
                 await message.reply_text("Введите сообщение или отправьте фото с подписью.")
                 return
@@ -848,8 +857,8 @@ def run_telegram_bot():
             await message.delete()
             return
 
-        # Текстовый режим (gpt-5.2): только текст ИЛИ 1 изображение + текст ИЛИ текст с контекстом документа
-        if model == "gpt-5.2":
+        # Текстовый режим (latest): только текст ИЛИ 1 изображение + текст ИЛИ текст с контекстом документа
+        if model == TEXT_MODEL:
             message = await update.message.reply_text("Обрабатываю…")
             text_history = list(context.user_data.get("text_chat_history", []))
             text_context = context.user_data.get("text_context")
@@ -899,6 +908,7 @@ def run_telegram_bot():
             else:
                 for part in parts:
                     await update.message.reply_text(part)
+            await update.message.reply_text(f"🤖 Модель ответа: {model}")
             return
 
         # Режим генерации изображений

@@ -52,8 +52,10 @@ def handle_too_large(_e):
 _user_cache: dict[str, dict] = {}
 
 DEFAULT_MODEL = "gpt-image-1.5"
+LEGACY_TEXT_MODEL = "gpt-5.2"
+TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "latest").strip() or "latest"
 MODELS = {
-    "gpt-5.2": "gpt-5.2",
+    TEXT_MODEL: TEXT_MODEL,
     "gpt-image-1": "gpt-image-1",
     "gpt-image-1.5": "gpt-image-1.5",
     "dall-e-2": "dall-e-2",
@@ -86,7 +88,7 @@ def _get_user_data() -> dict:
         key = str(uuid.uuid4())
     if key not in _user_cache:
         ud = user_db.get_user_data(key) if "@" in key else {
-            "model": "gpt-5.2",
+            "model": TEXT_MODEL,
             "pending_images": [],
             "text_chat_history": [],
             "rag_chat_history": [],
@@ -111,7 +113,14 @@ def _set_model(model: str) -> None:
 
 
 def _get_model() -> str:
-    return _get_user_data().get("model", DEFAULT_MODEL)
+    ud = _get_user_data()
+    model = ud.get("model", DEFAULT_MODEL)
+    if model == LEGACY_TEXT_MODEL:
+        # Мягкая миграция старого значения из SQLite/кэша.
+        ud["model"] = TEXT_MODEL
+        _save_user_data()
+        return TEXT_MODEL
+    return model
 
 
 def _update_chat_history(key: str, user_msg: str, assistant_msg: str) -> None:
@@ -224,9 +233,9 @@ def api_command():
 
     # Команды переключения режима
     if cmd == "start":
-        _set_model("gpt-5.2")
+        _set_model(TEXT_MODEL)
         return {"ok": True, "message": (
-            "🖼 Pusplexity\n\nРежим по умолчанию: gpt-5.2 (чат)\n\n"
+            f"🖼 Pusplexity\n\nРежим по умолчанию: {TEXT_MODEL} (чат)\n\n"
             "◾ /text — чат, анализ 1 фото, контекст из документов\n"
             "◾ /image1, /image15, /dalle — редактирование фото\n"
             "◾ /create, /dalle_gen — генерация по тексту\n"
@@ -234,9 +243,9 @@ def api_command():
             "/help — справка"
         )}
     if cmd == "text":
-        _set_model("gpt-5.2")
+        _set_model(TEXT_MODEL)
         return {"ok": True, "message": (
-            "✅ Текстовый режим (gpt-5.2)\n\n"
+            f"✅ Текстовый режим ({TEXT_MODEL})\n\n"
             "• Чат, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD"
         )}
     if cmd == "image1":
@@ -264,8 +273,8 @@ def api_command():
         return {"ok": True, "message": (
             "📖 Pusplexity — Справка по кнопкам\n\n"
             "◾ Режимы работы\n"
-            "Старт — Начало работы (gpt-5.2 по умолчанию).\n"
-            "Текст — Чат gpt-5.2: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
+            f"Старт — Начало работы ({TEXT_MODEL} по умолчанию).\n"
+            f"Текст — Чат {TEXT_MODEL}: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
             "Image1 — gpt-image-1: редактирование 1–10 фото.\n"
             "Image15 — gpt-image-1.5: редактирование 1–10 фото.\n"
             "DALL-E — DALL-E 2: редактирование 1 фото.\n"
@@ -390,7 +399,7 @@ def api_send():
         rag_history = list(ud.get("rag_chat_history", []))
         try:
             result_text = processor.process_text_with_rag_context(
-                text, rag_context, model="gpt-5.2", history=rag_history or None
+                text, rag_context, model=TEXT_MODEL, history=rag_history or None
             )
         except Exception as e:
             return {"ok": False, "error": str(e)}
@@ -402,7 +411,13 @@ def api_send():
                 if src not in source_scores or score > source_scores[src]:
                     source_scores[src] = score
         sources_line = ", ".join(f"{s} ({d})" for s, d in sorted(source_scores.items()))
-        return {"ok": True, "type": "text", "message": result_text, "sources": sources_line}
+        return {
+            "ok": True,
+            "type": "text",
+            "message": result_text,
+            "sources": sources_line,
+            "model": TEXT_MODEL,
+        }
 
     # Create / dalle_create
     if model in ("create", "dalle_create"):
@@ -419,10 +434,16 @@ def api_send():
         except Exception as e:
             return {"ok": False, "error": _format_image_error(e)}
         b64 = base64.b64encode(result_bytes).decode("utf-8")
-        return {"ok": True, "type": "image", "image_b64": b64, "usage": usage_str}
+        return {
+            "ok": True,
+            "type": "image",
+            "image_b64": b64,
+            "usage": usage_str,
+            "model": "dall-e-2" if model == "dalle_create" else "gpt-image-1.5",
+        }
 
-    # gpt-5.2 текстовый режим
-    if model == "gpt-5.2":
+    # latest текстовый режим
+    if model == TEXT_MODEL:
         if not text:
             return {"ok": False, "error": "Введите сообщение или отправьте фото с подписью."}
         text_history = list(ud.get("text_chat_history", []))
@@ -446,7 +467,7 @@ def api_send():
         user_msg = f"[Изображение] {text}" if images else text
         _update_chat_history("text_chat_history", user_msg, result_text)
         ud["pending_images"] = []
-        return {"ok": True, "type": "text", "message": result_text}
+        return {"ok": True, "type": "text", "message": result_text, "model": model}
 
     # Режимы редактирования изображений
     if model in ("gpt-image-1", "gpt-image-1.5", "dall-e-2") and images and not text:
@@ -465,7 +486,7 @@ def api_send():
         return {"ok": False, "error": _format_image_error(e)}
     ud["pending_images"] = []
     b64 = base64.b64encode(result_bytes).decode("utf-8")
-    return {"ok": True, "type": "image", "image_b64": b64, "usage": usage_str}
+    return {"ok": True, "type": "image", "image_b64": b64, "usage": usage_str, "model": model}
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -488,8 +509,8 @@ def api_upload():
         f.save(dest)
         return {"ok": True, "message": f"✅ Сохранён: {f.filename}"}
 
-    # Режим /text (gpt-5.2): изображение для анализа ИЛИ документ для контекста
-    if model == "gpt-5.2":
+    # Режим /text (latest): изображение для анализа ИЛИ документ для контекста
+    if model == TEXT_MODEL:
         f = request.files.get("file")
         if not f or not f.filename:
             return {"ok": False, "error": "Выберите файл"}

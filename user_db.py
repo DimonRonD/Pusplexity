@@ -10,16 +10,18 @@ import sqlite3
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+LEGACY_TEXT_MODEL = "gpt-5.2"
+TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "latest").strip() or "latest"
 
 # Путь к БД — из env или рядом с модулем
 _DB_DIR = Path(os.environ.get("USER_DB_PATH", Path(__file__).parent))
 DB_PATH = _DB_DIR / "user_data.db"
 
 # Схема
-SCHEMA = """
+SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS user_data (
     email TEXT PRIMARY KEY,
-    model TEXT NOT NULL DEFAULT 'gpt-5.2',
+    model TEXT NOT NULL DEFAULT '{TEXT_MODEL}',
     text_chat_history TEXT NOT NULL DEFAULT '[]',
     rag_chat_history TEXT NOT NULL DEFAULT '[]',
     text_context TEXT,
@@ -51,7 +53,7 @@ def get_user_data(email: str) -> dict:
         ).fetchone()
     if not row:
         return {
-            "model": "gpt-5.2",
+            "model": TEXT_MODEL,
             "pending_images": [],
             "text_chat_history": [],
             "rag_chat_history": [],
@@ -59,8 +61,11 @@ def get_user_data(email: str) -> dict:
             "text_context_filename": None,
             "rag_add_mode": False,
         }
+    model = row["model"] or TEXT_MODEL
+    if model == LEGACY_TEXT_MODEL:
+        model = TEXT_MODEL
     return {
-        "model": row["model"] or "gpt-5.2",
+        "model": model,
         "pending_images": [],  # не храним — временные
         "text_chat_history": json.loads(row["text_chat_history"] or "[]"),
         "rag_chat_history": json.loads(row["rag_chat_history"] or "[]"),
@@ -90,7 +95,7 @@ def save_user_data(email: str, data: dict) -> None:
             """,
             (
                 email,
-                data.get("model", "gpt-5.2"),
+                data.get("model", TEXT_MODEL),
                 json.dumps(data.get("text_chat_history", []), ensure_ascii=False),
                 json.dumps(data.get("rag_chat_history", []), ensure_ascii=False),
                 data.get("text_context"),
