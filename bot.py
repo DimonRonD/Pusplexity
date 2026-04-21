@@ -105,7 +105,15 @@ def run_telegram_bot():
     processor = ImageProcessor()
 
     LEGACY_TEXT_MODEL = "gpt-5.2"
-    TEXT_MODEL = os.environ.get("OPENAI_TEXT_MODEL", "latest").strip() or "latest"
+    DEFAULT_TEXT_MODEL = "gpt-5.4"
+
+    def _resolve_text_model(raw: str | None) -> str:
+        model = (raw or "").strip()
+        if not model or model == "latest":
+            return DEFAULT_TEXT_MODEL
+        return model
+
+    TEXT_MODEL = _resolve_text_model(os.environ.get("OPENAI_TEXT_MODEL"))
     DEFAULT_MODEL = "gpt-image-1.5"
     MODELS = {
         TEXT_MODEL: TEXT_MODEL,

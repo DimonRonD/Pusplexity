@@ -10,7 +10,7 @@ Pusplexity — Telegram-бот и веб-интерфейс (Flask) для ра�
 - **Текстовые команды** — «сделай в стиле акварели», «объедини в коллаж», «убери фон» и т.п.
 - **Модели**: gpt-image-1, gpt-image-1.5, DALL-E 2
 - **Генерация по тексту** — создание изображений без исходных фото (create, dalle_gen)
-- **Текстовый режим** — чат latest, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD, память 20 сообщений
+- **Текстовый режим** — чат (по умолчанию `gpt-5.4`), анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD, память 20 сообщений
 
 ### RAG — база знаний
 
@@ -48,7 +48,7 @@ pip install -r requirements.txt
 
 2. Заполните переменные:
    - `OPENAI_API_KEY` — ключ из [OpenAI Platform](https://platform.openai.com/api-keys)
-   - `OPENAI_TEXT_MODEL` — модель для текстового режима (по умолчанию `latest`)
+   - `OPENAI_TEXT_MODEL` — модель для текстового режима (по умолчанию `gpt-5.4`; значение `latest` трактуется как `gpt-5.4`)
    - `TELEGRAM_BOT_TOKEN` — токен от [@BotFather](https://t.me/BotFather)
    - `TRAEFIK_CERT_RESOLVER` — имя ACME-resolver в Traefik (например `mytlschallenge`) для HTTPS-роутинга
 
