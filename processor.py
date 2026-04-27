@@ -14,7 +14,7 @@ from typing import BinaryIO
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
-DEFAULT_TEXT_MODEL = "gpt-5.4"
+DEFAULT_TEXT_MODEL = "gpt-5.5"
 
 
 def _resolve_text_model(raw: str | None) -> str:

@@ -11,7 +11,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 LEGACY_TEXT_MODEL = "gpt-5.2"
-DEFAULT_TEXT_MODEL = "gpt-5.4"
+DEFAULT_TEXT_MODEL = "gpt-5.5"
 
 
 def _resolve_text_model(raw: str | None) -> str:
