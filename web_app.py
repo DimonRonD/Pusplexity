@@ -6,10 +6,11 @@ Pusplexity — веб-интерфейс на Flask.
 """
 
 import base64
-import io
 import logging
 import os
+import secrets
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -35,8 +36,14 @@ from rag_store import DATA_DIR, RAGStore, load_document
 load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-production")
+_secret_key = os.environ.get("FLASK_SECRET_KEY")
+if not _secret_key:
+    raise RuntimeError("FLASK_SECRET_KEY must be set")
+app.secret_key = _secret_key
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +52,7 @@ logger = logging.getLogger(__name__)
 def handle_too_large(_e):
     """Для API всегда возвращаем JSON, чтобы фронтенд не падал на HTML-ошибке."""
     if request.path.startswith("/api/"):
-        return {"ok": False, "error": "Файл слишком большой. Максимум 50 МБ."}, 413
+        return _api_error("Файл слишком большой. Максимум 50 МБ.", 413)
     return "Файл слишком большой. Максимум 50 МБ.", 413
 
 # Кэш в памяти (pending_images, rag_add_mode — сессионные)
@@ -84,6 +91,105 @@ MODEL_LABELS = {
 RAG_ALLOWED_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".text")
 TEXT_CONTEXT_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".text")
 CHAT_HISTORY_SIZE = 20
+ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+CSRF_SESSION_KEY = "_csrf_token"
+_LOGIN_ATTEMPTS_WINDOW_SEC = 10 * 60
+_LOGIN_ATTEMPTS_LIMIT = 8
+_login_attempts: dict[str, list[float]] = {}
+
+
+def _api_error(message: str, status: int = 400) -> tuple[dict, int]:
+    return {"ok": False, "error": message}, status
+
+
+def _api_internal_error(log_message: str, exc: Exception) -> tuple[dict, int]:
+    request_id = uuid.uuid4().hex[:10]
+    logger.exception("%s (request_id=%s): %s", log_message, request_id, exc)
+    return _api_error(f"Внутренняя ошибка (id={request_id})", 500)
+
+
+def _guess_doc_type(data: bytes) -> str | None:
+    if data.startswith(b"%PDF-"):
+        return "pdf"
+    if data.startswith(b"PK\x03\x04"):
+        return "zip-office"
+    if data.startswith(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"):
+        return "ole-office"
+    try:
+        data[:2048].decode("utf-8")
+        return "text"
+    except UnicodeDecodeError:
+        return None
+
+
+def _looks_like_image(data: bytes) -> bool:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return True
+    if data.startswith(b"\xff\xd8\xff"):
+        return True
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return True
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return True
+    return False
+
+
+def _validate_uploaded_document(filename: str, data: bytes) -> bool:
+    ext = Path(filename).suffix.lower()
+    doc_type = _guess_doc_type(data)
+    if ext in (".txt", ".md", ".text"):
+        return doc_type == "text"
+    if ext == ".pdf":
+        return doc_type == "pdf"
+    if ext in (".xlsx", ".docx"):
+        return doc_type == "zip-office"
+    if ext == ".xls":
+        return doc_type == "ole-office"
+    return False
+
+
+def _issue_csrf_token() -> str:
+    token = session.get(CSRF_SESSION_KEY)
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session[CSRF_SESSION_KEY] = token
+    return token
+
+
+@app.context_processor
+def inject_template_globals():
+    return {"csrf_token": _issue_csrf_token}
+
+
+@app.before_request
+def protect_post_requests():
+    if request.method != "POST":
+        return None
+    token = session.get(CSRF_SESSION_KEY)
+    provided = (
+        request.headers.get("X-CSRF-Token")
+        or request.form.get("csrf_token")
+        or ""
+    )
+    if not token or not secrets.compare_digest(str(token), str(provided)):
+        if request.path.startswith("/api/"):
+            return _api_error("Неверный CSRF-токен", 403)
+        return render_template("login.html", error="Сессия обновилась. Повторите вход."), 403
+    return None
+
+
+def _is_login_rate_limited(identity: str) -> bool:
+    now = time.time()
+    attempts = [t for t in _login_attempts.get(identity, []) if now - t <= _LOGIN_ATTEMPTS_WINDOW_SEC]
+    _login_attempts[identity] = attempts
+    return len(attempts) >= _LOGIN_ATTEMPTS_LIMIT
+
+
+def _register_login_attempt(identity: str) -> None:
+    now = time.time()
+    attempts = [t for t in _login_attempts.get(identity, []) if now - t <= _LOGIN_ATTEMPTS_WINDOW_SEC]
+    attempts.append(now)
+    _login_attempts[identity] = attempts
 
 
 def _get_user_key() -> str | None:
@@ -97,7 +203,7 @@ def _get_user_data() -> dict:
     if not key:
         key = str(uuid.uuid4())
     if key not in _user_cache:
-        ud = user_db.get_user_data(key) if "@" in key else {
+        default_data = {
             "model": TEXT_MODEL,
             "pending_images": [],
             "text_chat_history": [],
@@ -106,6 +212,14 @@ def _get_user_data() -> dict:
             "text_context_filename": None,
             "rag_add_mode": False,
         }
+        if "@" in key:
+            try:
+                ud = user_db.get_user_data(key)
+            except Exception as e:
+                logger.exception("Не удалось загрузить user_data из SQLite для %s: %s", key, e)
+                ud = dict(default_data)
+        else:
+            ud = dict(default_data)
         _user_cache[key] = ud
     return _user_cache[key]
 
@@ -114,7 +228,11 @@ def _save_user_data() -> None:
     """Сохраняет данные в SQLite (для авторизованных по email)."""
     key = _get_user_key()
     if key and "@" in key and key in _user_cache:
-        user_db.save_user_data(key, _user_cache[key])
+        try:
+            user_db.save_user_data(key, _user_cache[key])
+        except Exception as e:
+            # Не роняем API при проблемах с файловыми правами/SQLite.
+            logger.exception("Не удалось сохранить user_data в SQLite для %s: %s", key, e)
 
 
 def _set_model(model: str) -> None:
@@ -203,11 +321,16 @@ def login():
         return render_template("login.html")
     email = (request.form.get("email") or "").strip()
     password = request.form.get("password") or ""
+    identity = f"{request.remote_addr}:{email.lower()}"
+    if _is_login_rate_limited(identity):
+        return render_template("login.html", error="Слишком много попыток входа. Повторите позже.")
     if not email or not password:
         return render_template("login.html", error="Введите email и пароль")
     if not verify_credentials(email, password):
+        _register_login_attempt(identity)
         return render_template("login.html", error="Неверный email или пароль")
     session["email"] = email
+    _login_attempts.pop(identity, None)
     return redirect(url_for("chat"))
 
 
@@ -227,7 +350,7 @@ def chat():
 
 def _require_auth():
     if "email" not in session:
-        return {"ok": False, "error": "Требуется авторизация"}, 401
+        return _api_error("Требуется авторизация", 401)
 
 
 # API-эндпоинты для команд (AJAX)
@@ -235,11 +358,11 @@ def _require_auth():
 
 @app.route("/api/command", methods=["POST"])
 def api_command():
-    if "email" not in session:
-        return {"ok": False, "error": "Требуется авторизация"}, 401
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     cmd = (request.form.get("command") or "").strip().lower()
     ud = _get_user_data()
-    processor = ImageProcessor()
 
     # Команды переключения режима
     if cmd == "start":
@@ -314,10 +437,9 @@ def api_command():
             store = _get_rag_store()
             counts = store.index_documents(DATA_DIR)
         except ValueError as e:
-            return {"ok": False, "error": str(e)}
+            return _api_error(str(e))
         except Exception as e:
-            logger.exception("Ошибка индексации RAG: %s", e)
-            return {"ok": False, "error": str(e)}
+            return _api_internal_error("Ошибка индексации RAG", e)
         if not counts:
             return {"ok": True, "message": "Нет документов для индексации. Используйте /rag_add."}
         total = sum(counts.values())
@@ -330,9 +452,9 @@ def api_command():
             store = _get_rag_store()
             sources = store.list_sources()
         except ValueError as e:
-            return {"ok": False, "error": str(e)}
+            return _api_error(str(e))
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return _api_internal_error("Ошибка list_sources", e)
         if not sources:
             return {"ok": True, "message": "Хранилище RAG пусто. Используйте /rag_add и /rag_index."}
         return {"ok": True, "message": "📚 Источники:\n\n" + "\n".join(f"• {s}" for s in sources)}
@@ -350,30 +472,32 @@ def api_command():
         _save_user_data()
         return {"ok": True, "message": "✅ История /rag_text очищена."}
 
-    return {"ok": False, "error": f"Неизвестная команда: {cmd}"}
+    return _api_error(f"Неизвестная команда: {cmd}")
 
 
 @app.route("/api/rag_delete", methods=["POST"])
 def api_rag_delete():
-    if "email" not in session:
-        return {"ok": False, "error": "Требуется авторизация"}, 401
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     source = (request.form.get("source") or "").strip()
     if not source:
-        return {"ok": False, "error": "Укажите источник: /rag_delete <имя>"}
+        return _api_error("Укажите источник: /rag_delete <имя>")
     try:
         store = _get_rag_store()
         count = store.delete_source(source, DATA_DIR)
     except ValueError as e:
-        return {"ok": False, "error": str(e)}
+        return _api_error(str(e))
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return _api_internal_error("Ошибка удаления источника RAG", e)
     return {"ok": True, "message": f"✅ Источник «{source}» удалён ({count} чанков)."}
 
 
 @app.route("/api/send", methods=["POST"])
 def api_send():
-    if "email" not in session:
-        return {"ok": False, "error": "Требуется авторизация"}, 401
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     text = (request.form.get("text") or "").strip()
     ud = _get_user_data()
     model = _get_model()
@@ -388,22 +512,23 @@ def api_send():
         for f in files:
             if f and f.filename:
                 ext = Path(f.filename).suffix.lower()
-                if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif") or (f.content_type or "").startswith("image/"):
-                    images.append(f.read())
+                raw = f.read()
+                if ext in ALLOWED_IMAGE_EXTENSIONS and _looks_like_image(raw):
+                    images.append(raw)
     if len(images) > 10:
         images = images[-10:]
 
     # RAG режим
     if model == "rag_text":
         if not text:
-            return {"ok": False, "error": "Введите вопрос для RAG."}
+            return _api_error("Введите вопрос для RAG.")
         try:
             store = _get_rag_store()
             results = store.query(text, 5)
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return _api_internal_error("Ошибка RAG query", e)
         if not results:
-            return {"ok": False, "error": "Хранилище RAG пусто. Используйте /rag_add и /rag_index."}
+            return _api_error("Хранилище RAG пусто. Используйте /rag_add и /rag_index.")
         context_parts = [f"[{src}]\n{doc}" for doc, src, _ in results]
         rag_context = "\n\n---\n\n".join(context_parts)
         rag_history = list(ud.get("rag_chat_history", []))
@@ -412,7 +537,7 @@ def api_send():
                 text, rag_context, model=TEXT_MODEL, history=rag_history or None
             )
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return _api_internal_error("Ошибка OpenAI для /rag_text", e)
         _update_chat_history("rag_chat_history", text, result_text)
         source_scores = {}
         for doc, src, dist in results:
@@ -432,7 +557,7 @@ def api_send():
     # Create / dalle_create
     if model in ("create", "dalle_create"):
         if not text:
-            return {"ok": False, "error": "Введите текстовое описание изображения."}
+            return _api_error("Введите текстовое описание изображения.")
         if model == "dalle_create" and len(text) > 1000:
             text = text[:1000] + "\n\n[... обрезано]"
         elif len(text) > 4000:
@@ -442,7 +567,7 @@ def api_send():
                 text, model="dall-e-2" if model == "dalle_create" else "gpt-image-1.5"
             )
         except Exception as e:
-            return {"ok": False, "error": _format_image_error(e)}
+            return _api_error(_format_image_error(e))
         b64 = base64.b64encode(result_bytes).decode("utf-8")
         return {
             "ok": True,
@@ -455,7 +580,7 @@ def api_send():
     # latest текстовый режим
     if model == TEXT_MODEL:
         if not text:
-            return {"ok": False, "error": "Введите сообщение или отправьте фото с подписью."}
+            return _api_error("Введите сообщение или отправьте фото с подписью.")
         text_history = list(ud.get("text_chat_history", []))
         text_context = ud.get("text_context")
         try:
@@ -473,7 +598,7 @@ def api_send():
                     text, model=model, history=text_history or None
                 )
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return _api_internal_error("Ошибка текстового режима", e)
         user_msg = f"[Изображение] {text}" if images else text
         _update_chat_history("text_chat_history", user_msg, result_text)
         ud["pending_images"] = []
@@ -487,13 +612,13 @@ def api_send():
             "Введите текстовую команду."
         )}
     if not images:
-        return {"ok": False, "error": "Сначала загрузите изображение, затем введите команду."}
+        return _api_error("Сначала загрузите изображение, затем введите команду.")
     if len(text) > 4000:
         text = text[:4000] + "\n\n[... обрезано]"
     try:
         result_bytes, usage_str = processor.process(images, text, model=model)
     except Exception as e:
-        return {"ok": False, "error": _format_image_error(e)}
+        return _api_error(_format_image_error(e))
     ud["pending_images"] = []
     b64 = base64.b64encode(result_bytes).decode("utf-8")
     return {"ok": True, "type": "image", "image_b64": b64, "usage": usage_str, "model": model}
@@ -501,8 +626,9 @@ def api_send():
 
 @app.route("/api/upload", methods=["POST"])
 def api_upload():
-    if "email" not in session:
-        return {"ok": False, "error": "Требуется авторизация"}, 401
+    auth_error = _require_auth()
+    if auth_error:
+        return auth_error
     ud = _get_user_data()
     model = _get_model()
 
@@ -510,38 +636,45 @@ def api_upload():
     if ud.get("rag_add_mode"):
         f = request.files.get("file")
         if not f or not f.filename:
-            return {"ok": False, "error": "Выберите файл"}
+            return _api_error("Выберите файл")
         ext = Path(f.filename).suffix.lower()
         if ext not in RAG_ALLOWED_EXTENSIONS:
-            return {"ok": False, "error": f"Формат {ext} не поддерживается. TXT, PDF, XLSX, DOCX."}
+            return _api_error(f"Формат {ext} не поддерживается. TXT, PDF, XLSX, DOCX.")
+        raw = f.read()
+        if not _validate_uploaded_document(f.filename, raw):
+            return _api_error("Файл не прошёл проверку типа содержимого.")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        dest = DATA_DIR / secure_filename(f.filename)
-        f.save(dest)
+        dest = DATA_DIR / secure_filename(f.filename or f"upload-{uuid.uuid4().hex}")
+        dest.write_bytes(raw)
         return {"ok": True, "message": f"✅ Сохранён: {f.filename}"}
 
     # Режим /text (latest): изображение для анализа ИЛИ документ для контекста
     if model == TEXT_MODEL:
         f = request.files.get("file")
         if not f or not f.filename:
-            return {"ok": False, "error": "Выберите файл"}
+            return _api_error("Выберите файл")
         ext = Path(f.filename).suffix.lower()
-        is_image = ext in (".png", ".jpg", ".jpeg", ".webp", ".gif") or (f.content_type or "").startswith("image/")
+        raw = f.read()
+        is_image = ext in ALLOWED_IMAGE_EXTENSIONS and _looks_like_image(raw)
         if is_image:
-            ud["pending_images"] = [f.read()]
+            ud["pending_images"] = [raw]
             return {"ok": True, "message": f"✅ Изображение «{f.filename}» загружено. Введите вопрос или описание для анализа."}
         if ext not in TEXT_CONTEXT_EXTENSIONS:
-            return {"ok": False, "error": f"Формат {ext} не поддерживается. Изображения: PNG, JPG, JPEG, WEBP, GIF. Документы: TXT, PDF, XLSX, DOCX, MD."}
+            return _api_error(f"Формат {ext} не поддерживается. Изображения: PNG, JPG, JPEG, WEBP, GIF. Документы: TXT, PDF, XLSX, DOCX, MD.")
+        if not _validate_uploaded_document(f.filename, raw):
+            return _api_error("Файл не прошёл проверку типа содержимого.")
         try:
-            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
-                f.save(tmp.name)
-                content = load_document(Path(tmp.name))
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_path = Path(tmpdir) / secure_filename(f.filename)
+                tmp_path.write_bytes(raw)
+                content = load_document(tmp_path)
             if not content or not content.strip():
-                return {"ok": False, "error": "Не удалось извлечь текст."}
+                return _api_error("Не удалось извлечь текст.")
             ud["text_context"] = content.strip()
             ud["text_context_filename"] = f.filename
             _save_user_data()
         except Exception as e:
-            return {"ok": False, "error": str(e)}
+            return _api_internal_error("Ошибка загрузки документа для контекста", e)
         return {"ok": True, "message": f"✅ Документ «{f.filename}» загружен как контекст."}
 
     # Изображения для редактирования
@@ -552,8 +685,9 @@ def api_upload():
     for f in files:
         if f and f.filename:
             ext = Path(f.filename).suffix.lower()
-            if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif") or (f.content_type or "").startswith("image/"):
-                images.append(f.read())
+            raw = f.read()
+            if ext in ALLOWED_IMAGE_EXTENSIONS and _looks_like_image(raw):
+                images.append(raw)
     if len(images) > 10:
         images = images[-10:]
     ud["pending_images"] = images
