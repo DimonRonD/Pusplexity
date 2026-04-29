@@ -351,7 +351,6 @@ def api_command():
         return auth_error
     cmd = (request.form.get("command") or "").strip().lower()
     ud = _get_user_data()
-    processor = ImageProcessor()
 
     # Команды переключения режима
     if cmd == "start":
