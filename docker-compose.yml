@@ -6,6 +6,10 @@ services:
     env_file: .env
     environment:
       - BOT_DATA_PATH=/data/bot_data.pickle
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - bot_data:/data
       - bot_documents:/app/data
@@ -20,8 +24,12 @@ services:
     env_file: .env
     environment:
       - USERS_FILE=/app/users.txt
-      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-this-secret-in-production}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
       - USER_DB_PATH=/app/db
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     # Временный fallback для прямого доступа во время миграции на Traefik.
     # После проверки https://pusplexity.dimonrond.ru удалите этот проброс.
     # ports:
@@ -42,7 +50,7 @@ services:
       - bot_documents:/app/data
       - chroma_data:/app/chroma_db
       - user_db:/app/db
-      - ./users.txt:/app/users.txt
+      - ./users.txt:/app/users.txt:ro
     command: ["gunicorn", "-w", "1", "-k", "gevent", "-b", "0.0.0.0:5000", "--timeout", "300", "--keep-alive", "5", "web_app:app"]
 
 volumes:

@@ -12,5 +12,9 @@ COPY bot.py processor.py rag_store.py auth.py web_app.py user_db.py ./
 COPY templates/ ./templates/
 COPY static/ ./static/
 
+RUN adduser --disabled-password --gecos "" --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
 # По умолчанию — Telegram-бот (для обратной совместимости)
 CMD ["python", "bot.py", "telegram"]

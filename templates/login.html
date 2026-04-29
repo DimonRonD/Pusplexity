@@ -64,6 +64,7 @@
         <div class="error alert py-2 px-3 mb-3">{{ error }}</div>
         {% endif %}
         <form method="post" action="{{ url_for('login') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="form-group mb-3">
                 <label for="email">Email</label>
                 <input class="form-control" type="email" id="email" name="email" required autofocus

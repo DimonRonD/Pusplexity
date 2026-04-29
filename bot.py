@@ -630,11 +630,11 @@ def run_telegram_bot():
             images = []  # Текстовый режим: только 1 новое фото
 
         logger.info(
-            "Получены изображения от user_id=%s: photo=%s, document=%s, caption=%r",
+            "Получены изображения от user_id=%s: photo=%s, document=%s, caption_len=%d",
             user.id,
             bool(message.photo),
             bool(message.document),
-            caption or None,
+            len(caption or ""),
         )
 
         if message.photo:
@@ -659,10 +659,10 @@ def run_telegram_bot():
 
         if caption:
             logger.info(
-                "Обработка запроса user_id=%s: %d изображений, prompt=%r",
+                "Обработка запроса user_id=%s: %d изображений, prompt_len=%d",
                 user.id,
                 len(images),
-                caption,
+                len(caption or ""),
             )
             context.user_data["pending_images"] = []
             await process_and_reply(update, context, images, caption)
@@ -683,9 +683,9 @@ def run_telegram_bot():
         images = context.user_data.get("pending_images", [])
 
         logger.info(
-            "Текстовое сообщение от user_id=%s: %r, pending_images=%d",
+            "Текстовое сообщение от user_id=%s: text_len=%d, pending_images=%d",
             user.id,
-            text[:100],
+            len(text),
             len(images),
         )
 
@@ -774,11 +774,11 @@ def run_telegram_bot():
         user = update.effective_user
         model = get_model(context)
         logger.info(
-            "Начало обработки для user_id=%s: %d изображений, model=%s, prompt=%r",
+            "Начало обработки для user_id=%s: %d изображений, model=%s, prompt_len=%d",
             user.id,
             len(images),
             model,
-            prompt,
+            len(prompt or ""),
         )
 
         # Режим create: только текст → изображение (images.generate, gpt-image-1.5)
@@ -1034,7 +1034,7 @@ def run_cli():
         print("Команда не может быть пустой.")
         return
 
-    logger.info("CLI: обработка %d изображений с prompt=%r", len(paths), prompt)
+    logger.info("CLI: обработка %d изображений, prompt_len=%d", len(paths), len(prompt))
     print("Обрабатываю…")
     try:
         result_bytes, usage_str = processor.process(paths, prompt)

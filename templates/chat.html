@@ -342,6 +342,13 @@ const fileDoc = document.getElementById('fileDoc');
 const btnTheme = document.getElementById('btnTheme');
 const btnModeMenu = document.getElementById('btnModeMenu');
 const modeList = document.getElementById('modeList');
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+async function apiFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    headers.set('X-CSRF-Token', csrfToken);
+    return fetch(url, { ...options, headers });
+}
 
 async function parseApiResponse(response) {
     const contentType = (response.headers.get('content-type') || '').toLowerCase();
@@ -535,7 +542,7 @@ async function runCommand(cmd) {
     const fd = new FormData();
     fd.append('command', cmd);
     try {
-        const r = await fetch('/api/command', { method: 'POST', body: fd });
+        const r = await apiFetch('/api/command', { method: 'POST', body: fd });
         const data = await parseApiResponse(r);
         if (data.ok) addMsg(data.message, false);
         else addMsg('Ошибка: ' + (data.error || 'неизвестно'), false);
@@ -555,7 +562,7 @@ async function sendMessage(text, images = []) {
     fd.append('text', userText);
     images.forEach((f, i) => fd.append('images[]', f));
     try {
-        const r = await fetch('/api/send', { method: 'POST', body: fd });
+        const r = await apiFetch('/api/send', { method: 'POST', body: fd });
         const data = await parseApiResponse(r);
         if (data.ok) {
             if (data.type === 'image') {
@@ -576,7 +583,7 @@ async function uploadDoc(file) {
     const fd = new FormData();
     fd.append('file', file);
     try {
-        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const r = await apiFetch('/api/upload', { method: 'POST', body: fd });
         const data = await parseApiResponse(r);
         addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
     } catch (e) {
@@ -588,7 +595,7 @@ async function uploadImages(files) {
     const fd = new FormData();
     for (const f of files) fd.append('file', f);
     try {
-        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const r = await apiFetch('/api/upload', { method: 'POST', body: fd });
         const data = await parseApiResponse(r);
         addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
     } catch (e) {
@@ -610,7 +617,7 @@ document.getElementById('btnRagDelete').addEventListener('click', async () => {
     const fd = new FormData();
     fd.append('source', source);
     try {
-        const r = await fetch('/api/rag_delete', { method: 'POST', body: fd });
+        const r = await apiFetch('/api/rag_delete', { method: 'POST', body: fd });
         const data = await parseApiResponse(r);
         addMsg(data.ok ? data.message : 'Ошибка: ' + (data.error || 'неизвестно'), false);
     } catch (e) {

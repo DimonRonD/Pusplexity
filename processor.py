@@ -82,9 +82,9 @@ class ImageProcessor:
         Кортеж (байты изображения, строка с использованием токенов или None).
         """
         logger.info(
-            "Начало обработки: %d изображений, prompt=%r",
+            "Начало обработки: %d изображений, prompt_len=%d",
             len(images),
-            prompt,
+            len(prompt or ""),
         )
 
         model = model or self.MODEL
@@ -369,7 +369,7 @@ class ImageProcessor:
             size = "1024x1024"
             quality = "standard"
 
-        logger.info("Генерация изображения по тексту: model=%s, prompt=%r", model, prompt[:100])
+        logger.info("Генерация изображения по тексту: model=%s, prompt_len=%d", model, len(prompt or ""))
 
         start_time = time.perf_counter()
         if model.startswith("dall-e"):
