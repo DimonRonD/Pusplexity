@@ -5,14 +5,18 @@
             display: flex;
             flex-direction: column;
             height: 100vh;
+            padding: 0.75rem;
+            gap: 0.75rem;
         }
         .chat-header {
-            background: var(--bg-panel);
-            border-bottom: 1px solid var(--border);
             padding: 0.75rem 1rem;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            gap: 0.75rem;
+            position: sticky;
+            top: 0;
+            z-index: 30;
         }
         .chat-header h1 { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
         .chat-header .logo { height: 28px; width: auto; }
@@ -21,28 +25,65 @@
             color: var(--text-muted);
             text-decoration: none;
             font-size: 0.85rem;
+            transition: color 0.2s ease;
         }
         .chat-header a:hover { color: var(--accent); }
         .mode-bar {
-            background: var(--bg-panel);
-            border-bottom: 1px solid var(--border);
-            padding: 0.5rem 1rem;
             display: flex;
             flex-wrap: wrap;
-            gap: 0.35rem;
+            gap: 0.45rem;
+            padding: 0.75rem;
+            position: sticky;
+            top: 72px;
+            z-index: 25;
+        }
+        .mode-toolbar {
+            display: none;
+            gap: 0.5rem;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+        }
+        .mode-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+            width: 100%;
+        }
+        .theme-btn, .menu-btn {
+            border: 1px solid var(--border);
+            background: rgba(26, 39, 67, 0.85);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 0.42rem 0.72rem;
+            transition: all 0.2s ease;
+        }
+        .theme-btn:hover, .menu-btn:hover {
+            border-color: var(--accent);
+            transform: translateY(-1px);
+        }
+        .theme-btn i {
+            transition: transform 0.25s ease;
+        }
+        .theme-btn.rotating i {
+            transform: rotate(180deg);
+        }
+        .mode-btn i {
+            margin-right: 0.28rem;
         }
         .mode-btn {
-            padding: 0.4rem 0.7rem;
-            background: var(--bg-input);
+            padding: 0.42rem 0.72rem;
+            background: rgba(26, 39, 67, 0.85);
             border: 1px solid var(--border);
-            border-radius: 6px;
+            border-radius: 8px;
             color: var(--text-muted);
             font-size: 0.8rem;
             cursor: pointer;
             font-family: inherit;
+            transition: all 0.2s ease;
         }
-        .mode-btn:hover { border-color: var(--accent); color: var(--text); }
-        .mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .mode-btn:hover { border-color: var(--accent); color: var(--text); transform: translateY(-1px); }
+        .mode-btn.active { background: linear-gradient(135deg, var(--accent), #7061ff); color: #fff; border-color: transparent; }
         .chat-area {
             flex: 1;
             overflow-y: auto;
@@ -50,23 +91,26 @@
             display: flex;
             flex-direction: column;
             gap: 1rem;
+            scrollbar-width: thin;
         }
         .msg {
             max-width: 85%;
             padding: 0.75rem 1rem;
-            border-radius: 12px;
+            border-radius: 14px;
             font-size: 0.95rem;
             white-space: pre-wrap;
             word-break: break-word;
+            animation: msg-appear 0.24s ease;
         }
         .msg.user {
             align-self: flex-end;
-            background: var(--accent);
+            background: linear-gradient(135deg, var(--accent), #7061ff);
             color: #fff;
+            box-shadow: 0 10px 20px rgba(76, 141, 255, 0.24);
         }
         .msg.bot {
             align-self: flex-start;
-            background: var(--bg-panel);
+            background: rgba(17, 26, 46, 0.9);
             border: 1px solid var(--border);
         }
         .msg.bot p { margin: 0.5rem 0; }
@@ -123,8 +167,6 @@
         .msg .sources { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem; }
         .input-area {
             padding: 1rem;
-            background: var(--bg-panel);
-            border-top: 1px solid var(--border);
         }
         .input-row {
             display: flex;
@@ -136,7 +178,7 @@
             min-height: 88px;
             max-height: 120px;
             padding: 0.65rem 0.9rem;
-            background: var(--bg-input);
+            background: rgba(26, 39, 67, 0.85);
             border: 1px solid var(--border);
             border-radius: 8px;
             color: var(--text);
@@ -150,15 +192,16 @@
         }
         .input-row .btn-send {
             padding: 0.65rem 1.2rem;
-            background: var(--accent);
+            background: linear-gradient(135deg, var(--accent), #7061ff);
             color: #fff;
             border: none;
             border-radius: 8px;
             font-family: inherit;
             font-weight: 500;
             cursor: pointer;
+            transition: transform 0.2s ease, filter 0.2s ease;
         }
-        .input-row .btn-send:hover { background: var(--accent-hover); }
+        .input-row .btn-send:hover { transform: translateY(-1px); filter: brightness(1.06); }
         .input-row .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
         .file-actions {
             display: flex;
@@ -168,49 +211,123 @@
         }
         .file-actions label {
             padding: 0.4rem 0.8rem;
-            background: var(--bg-input);
+            background: rgba(26, 39, 67, 0.85);
             border: 1px solid var(--border);
             border-radius: 6px;
             font-size: 0.85rem;
             cursor: pointer;
+            transition: all 0.2s ease;
         }
-        .file-actions label:hover { border-color: var(--accent); }
+        .file-actions label i {
+            margin-right: 0.35rem;
+        }
+        .file-actions label:hover { border-color: var(--accent); color: var(--text); }
         .file-actions input[type="file"] { display: none; }
         .loading { opacity: 0.6; }
+        @keyframes msg-appear {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @media (max-width: 992px) {
+            .chat-layout { height: 100dvh; padding: 0.5rem; gap: 0.5rem; }
+            .chat-header { flex-wrap: wrap; }
+            .chat-area { padding: 0.75rem; }
+            .msg { max-width: 94%; }
+            .mode-bar { padding: 0.6rem; }
+            .input-row .btn-send { padding: 0.6rem 1rem; }
+        }
+        @media (max-width: 576px) {
+            .chat-header h1 { font-size: 1rem; }
+            .chat-header { top: 0; }
+            .mode-bar {
+                top: 66px;
+                padding: 0.55rem;
+            }
+            .mode-toolbar {
+                display: flex;
+            }
+            .mode-list {
+                display: none;
+                margin-top: 0.35rem;
+            }
+            .mode-list.open {
+                display: flex;
+            }
+            .mode-btn {
+                flex: 1 1 calc(50% - 0.25rem);
+                text-align: left;
+            }
+            .msg {
+                max-width: 100%;
+                border-radius: 16px;
+                padding: 0.8rem 0.9rem;
+            }
+            .msg.user {
+                align-self: stretch;
+                margin-left: 0.9rem;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            .msg.bot {
+                align-self: stretch;
+                margin-right: 0.9rem;
+                box-shadow: 0 8px 18px rgba(10, 18, 35, 0.16);
+            }
+            .input-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .input-row .btn-send {
+                width: 100%;
+            }
+            .input-row textarea {
+                min-height: 96px;
+            }
+        }
 {% endblock %}
 {% block content %}
 <div class="chat-layout">
-    <header class="chat-header">
+    <header class="chat-header glass-panel">
         <h1><img src="{{ url_for('static', filename='pusplexity_logo.jpeg') }}" alt="Pusplexity" class="logo"> Pusplexity</h1>
-        <span class="user">{{ session.email }}</span>
-        <a href="{{ url_for('logout') }}">Выйти</a>
+        <div class="d-flex align-items-center gap-3 ms-auto">
+            <button type="button" class="theme-btn" id="btnTheme" title="Переключить тему">
+                <i class="bi bi-moon-stars"></i>
+            </button>
+            <span class="user">{{ session.email }}</span>
+            <a href="{{ url_for('logout') }}">Выйти</a>
+        </div>
     </header>
-    <div class="mode-bar">
-        <button class="mode-btn" data-cmd="start">Старт</button>
-        <button class="mode-btn" data-cmd="text">Текст</button>
-        <button class="mode-btn" data-cmd="image1">Image1</button>
-        <button class="mode-btn" data-cmd="image15">Image15</button>
-        <button class="mode-btn" data-cmd="dalle">DALL-E</button>
-        <button class="mode-btn" data-cmd="create">Create</button>
-        <button class="mode-btn" data-cmd="dalle_gen">DALL-E Gen</button>
-        <button class="mode-btn" data-cmd="rag_text">RAG</button>
-        <button class="mode-btn" data-cmd="rag_add">RAG Add</button>
-        <button class="mode-btn" data-cmd="rag_index">RAG Index</button>
-        <button class="mode-btn" data-cmd="rag_list">RAG List</button>
-        <button class="mode-btn" id="btnRagDelete">RAG Delete</button>
-        <button class="mode-btn" data-cmd="rag_clear">RAG Clear</button>
-        <button class="mode-btn" data-cmd="clear">Clear</button>
-        <button class="mode-btn" data-cmd="help">Help</button>
+    <div class="mode-bar glass-panel">
+        <div class="mode-toolbar">
+            <strong class="small m-0">Меню режимов</strong>
+            <button type="button" class="menu-btn" id="btnModeMenu"><i class="bi bi-grid-3x3-gap"></i> Режимы</button>
+        </div>
+        <div class="mode-list" id="modeList">
+            <button class="mode-btn" data-cmd="start"><i class="bi bi-house"></i>Старт</button>
+            <button class="mode-btn" data-cmd="text"><i class="bi bi-chat-left-text"></i>Текст</button>
+            <button class="mode-btn" data-cmd="image1"><i class="bi bi-image"></i>Image1</button>
+            <button class="mode-btn" data-cmd="image15"><i class="bi bi-images"></i>Image15</button>
+            <button class="mode-btn" data-cmd="dalle"><i class="bi bi-palette"></i>DALL-E</button>
+            <button class="mode-btn" data-cmd="create"><i class="bi bi-stars"></i>Create</button>
+            <button class="mode-btn" data-cmd="dalle_gen"><i class="bi bi-magic"></i>DALL-E Gen</button>
+            <button class="mode-btn" data-cmd="rag_text"><i class="bi bi-journal-text"></i>RAG</button>
+            <button class="mode-btn" data-cmd="rag_add"><i class="bi bi-upload"></i>RAG Add</button>
+            <button class="mode-btn" data-cmd="rag_index"><i class="bi bi-diagram-3"></i>RAG Index</button>
+            <button class="mode-btn" data-cmd="rag_list"><i class="bi bi-list-ul"></i>RAG List</button>
+            <button class="mode-btn" id="btnRagDelete"><i class="bi bi-trash"></i>RAG Delete</button>
+            <button class="mode-btn" data-cmd="rag_clear"><i class="bi bi-eraser"></i>RAG Clear</button>
+            <button class="mode-btn" data-cmd="clear"><i class="bi bi-x-circle"></i>Clear</button>
+            <button class="mode-btn" data-cmd="help"><i class="bi bi-question-circle"></i>Help</button>
+        </div>
     </div>
-    <div class="chat-area" id="chatArea"></div>
-    <div class="input-area">
+    <div class="chat-area glass-panel" id="chatArea"></div>
+    <div class="input-area glass-panel">
         <div class="input-row">
             <textarea id="textInput" placeholder="Сообщение или команда..." rows="3"></textarea>
             <button class="btn-send" id="btnSend">Отправить</button>
         </div>
         <div class="file-actions">
-            <label><input type="file" id="fileImages" accept="image/*" multiple> 📷 Изображения</label>
-            <label><input type="file" id="fileDoc" accept=".txt,.pdf,.xlsx,.docx,.md"> 📄 Документ</label>
+            <label><input type="file" id="fileImages" accept="image/*" multiple><i class="bi bi-image"></i>Изображения</label>
+            <label><input type="file" id="fileDoc" accept=".txt,.pdf,.xlsx,.docx,.md"><i class="bi bi-file-earmark-text"></i>Документ</label>
         </div>
     </div>
 </div>
@@ -222,6 +339,9 @@ const textInput = document.getElementById('textInput');
 const btnSend = document.getElementById('btnSend');
 const fileImages = document.getElementById('fileImages');
 const fileDoc = document.getElementById('fileDoc');
+const btnTheme = document.getElementById('btnTheme');
+const btnModeMenu = document.getElementById('btnModeMenu');
+const modeList = document.getElementById('modeList');
 
 async function parseApiResponse(response) {
     const contentType = (response.headers.get('content-type') || '').toLowerCase();
@@ -477,7 +597,11 @@ async function uploadImages(files) {
 }
 
 document.querySelectorAll('.mode-btn[data-cmd]').forEach(btn => {
-    btn.addEventListener('click', () => runCommand(btn.dataset.cmd));
+    btn.addEventListener('click', () => {
+        setActiveMode(btn.dataset.cmd);
+        if (window.matchMedia('(max-width: 576px)').matches) modeList.classList.remove('open');
+        runCommand(btn.dataset.cmd);
+    });
 });
 
 document.getElementById('btnRagDelete').addEventListener('click', async () => {
@@ -495,12 +619,16 @@ document.getElementById('btnRagDelete').addEventListener('click', async () => {
 });
 
 btnSend.addEventListener('click', () => {
+    const maybeCommand = textInput.value.trim().replace(/^\//, '').split(/\s+/)[0];
+    if (maybeCommand) setActiveMode(maybeCommand);
     sendMessage(textInput.value);
 });
 
 textInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        const maybeCommand = textInput.value.trim().replace(/^\//, '').split(/\s+/)[0];
+        if (maybeCommand) setActiveMode(maybeCommand);
         sendMessage(textInput.value);
     }
 });
@@ -518,5 +646,42 @@ fileDoc.addEventListener('change', (e) => {
 });
 
 addMsg('Нажмите /start или выберите режим. Введите /help для справки.', false);
+
+const modeButtons = Array.from(document.querySelectorAll('.mode-btn[data-cmd]'));
+function setActiveMode(targetCmd) {
+    modeButtons.forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.cmd === targetCmd);
+    });
+}
+setActiveMode('start');
+
+function applyTheme(theme) {
+    const resolved = theme === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', resolved);
+    localStorage.setItem('ui-theme', resolved);
+    if (btnTheme) {
+        btnTheme.innerHTML = resolved === 'light'
+            ? '<i class="bi bi-sun"></i>'
+            : '<i class="bi bi-moon-stars"></i>';
+    }
+}
+
+const savedTheme = localStorage.getItem('ui-theme');
+applyTheme(savedTheme || 'dark');
+
+if (btnTheme) {
+    btnTheme.addEventListener('click', () => {
+        btnTheme.classList.add('rotating');
+        const nextTheme = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark' ? 'light' : 'dark';
+        applyTheme(nextTheme);
+        setTimeout(() => btnTheme.classList.remove('rotating'), 220);
+    });
+}
+
+if (btnModeMenu) {
+    btnModeMenu.addEventListener('click', () => {
+        modeList.classList.toggle('open');
+    });
+}
 </script>
 {% endblock %}
