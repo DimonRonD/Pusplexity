@@ -6,6 +6,7 @@ Pusplexity — веб-интерфейс на Flask.
 """
 
 import base64
+import concurrent.futures
 import logging
 import os
 import secrets
@@ -96,6 +97,12 @@ CSRF_SESSION_KEY = "_csrf_token"
 _LOGIN_ATTEMPTS_WINDOW_SEC = 10 * 60
 _LOGIN_ATTEMPTS_LIMIT = 8
 _login_attempts: dict[str, list[float]] = {}
+_API_RATE_WINDOW_SEC = int(os.environ.get("API_RATE_WINDOW_SEC", "60"))
+_API_RATE_LIMIT_PER_WINDOW = int(os.environ.get("API_RATE_LIMIT_PER_WINDOW", "120"))
+_api_rate_window: dict[str, list[float]] = {}
+_DOC_PARSE_TIMEOUT_SEC = int(os.environ.get("DOC_PARSE_TIMEOUT_SEC", "12"))
+_MAX_CONTEXT_CHARS = int(os.environ.get("MAX_CONTEXT_CHARS", "120000"))
+_USER_DATA_RETENTION_DAYS = int(os.environ.get("USER_DATA_RETENTION_DAYS", "30"))
 
 
 def _api_error(message: str, status: int = 400) -> tuple[dict, int]:
@@ -106,6 +113,23 @@ def _api_internal_error(log_message: str, exc: Exception) -> tuple[dict, int]:
     request_id = uuid.uuid4().hex[:10]
     logger.exception("%s (request_id=%s): %s", log_message, request_id, exc)
     return _api_error(f"Внутренняя ошибка (id={request_id})", 500)
+
+
+def _check_api_rate_limit() -> tuple[dict, int] | None:
+    identity = f"{request.remote_addr}:{session.get('email', 'anon')}:{request.path}"
+    now = time.time()
+    attempts = [t for t in _api_rate_window.get(identity, []) if now - t <= _API_RATE_WINDOW_SEC]
+    if len(attempts) >= _API_RATE_LIMIT_PER_WINDOW:
+        return _api_error("Слишком много запросов, попробуйте позже.", 429)
+    attempts.append(now)
+    _api_rate_window[identity] = attempts
+    return None
+
+
+def _load_document_with_timeout(path: Path, timeout_sec: int = _DOC_PARSE_TIMEOUT_SEC) -> str | None:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(load_document, path)
+        return future.result(timeout=timeout_sec)
 
 
 def _guess_doc_type(data: bytes) -> str | None:
@@ -229,7 +253,13 @@ def _save_user_data() -> None:
     key = _get_user_key()
     if key and "@" in key and key in _user_cache:
         try:
+            data = _user_cache[key]
+            context = data.get("text_context")
+            if isinstance(context, str) and len(context) > _MAX_CONTEXT_CHARS:
+                data["text_context"] = context[:_MAX_CONTEXT_CHARS]
             user_db.save_user_data(key, _user_cache[key])
+            # Периодически чистим старые данные для снижения срока хранения.
+            user_db.purge_old_data(_USER_DATA_RETENTION_DAYS)
         except Exception as e:
             # Не роняем API при проблемах с файловыми правами/SQLite.
             logger.exception("Не удалось сохранить user_data в SQLite для %s: %s", key, e)
@@ -307,6 +337,26 @@ def health():
     return "OK", 200
 
 
+@app.after_request
+def apply_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; "
+        "img-src 'self' data: https:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+        "font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; form-action 'self'",
+    )
+    return response
+
+
 @app.route("/")
 def index():
     # Редирект без session — /login сам перенаправит в /chat при авторизации
@@ -361,6 +411,9 @@ def api_command():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
+    rate_error = _check_api_rate_limit()
+    if rate_error:
+        return rate_error
     cmd = (request.form.get("command") or "").strip().lower()
     ud = _get_user_data()
 
@@ -480,6 +533,9 @@ def api_rag_delete():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
+    rate_error = _check_api_rate_limit()
+    if rate_error:
+        return rate_error
     source = (request.form.get("source") or "").strip()
     if not source:
         return _api_error("Укажите источник: /rag_delete <имя>")
@@ -498,6 +554,9 @@ def api_send():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
+    rate_error = _check_api_rate_limit()
+    if rate_error:
+        return rate_error
     text = (request.form.get("text") or "").strip()
     ud = _get_user_data()
     model = _get_model()
@@ -629,6 +688,9 @@ def api_upload():
     auth_error = _require_auth()
     if auth_error:
         return auth_error
+    rate_error = _check_api_rate_limit()
+    if rate_error:
+        return rate_error
     ud = _get_user_data()
     model = _get_model()
 
@@ -667,12 +729,14 @@ def api_upload():
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp_path = Path(tmpdir) / secure_filename(f.filename)
                 tmp_path.write_bytes(raw)
-                content = load_document(tmp_path)
+                content = _load_document_with_timeout(tmp_path)
             if not content or not content.strip():
                 return _api_error("Не удалось извлечь текст.")
             ud["text_context"] = content.strip()
             ud["text_context_filename"] = f.filename
             _save_user_data()
+        except concurrent.futures.TimeoutError:
+            return _api_error("Обработка документа превысила лимит времени.", 408)
         except Exception as e:
             return _api_internal_error("Ошибка загрузки документа для контекста", e)
         return {"ok": True, "message": f"✅ Документ «{f.filename}» загружен как контекст."}

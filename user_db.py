@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -114,3 +115,21 @@ def save_user_data(email: str, data: dict) -> None:
             ),
         )
         conn.commit()
+
+
+def purge_old_data(retention_days: int) -> int:
+    """
+    Удаляет пользовательские записи старше retention_days по updated_at.
+    Возвращает число удалённых строк.
+    """
+    if retention_days <= 0:
+        return 0
+    _init_db()
+    cutoff = (datetime.utcnow() - timedelta(days=retention_days)).isoformat()
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM user_data WHERE updated_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+        return cur.rowcount or 0
