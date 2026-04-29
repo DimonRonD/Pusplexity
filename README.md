@@ -51,6 +51,10 @@ pip install -r requirements.txt
    - `OPENAI_TEXT_MODEL` — модель для текстового режима (по умолчанию `gpt-5.5`; значение `latest` трактуется как `gpt-5.5`)
    - `TELEGRAM_BOT_TOKEN` — токен от [@BotFather](https://t.me/BotFather)
    - `FLASK_SECRET_KEY` — обязательный секрет для сессий веб-интерфейса
+   - `API_RATE_WINDOW_SEC` / `API_RATE_LIMIT_PER_WINDOW` — лимиты частоты API-запросов в вебе
+   - `DOC_PARSE_TIMEOUT_SEC` — таймаут извлечения текста из документа в веб-режиме
+   - `MAX_CONTEXT_CHARS` — максимальный размер сохраняемого текстового контекста
+   - `USER_DATA_RETENTION_DAYS` — срок хранения пользовательских данных в SQLite
    - `TRAEFIK_CERT_RESOLVER` — имя ACME-resolver в Traefik (например `mytlschallenge`) для HTTPS-роутинга
 
 ## Структура проекта
