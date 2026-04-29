@@ -203,7 +203,7 @@ def _get_user_data() -> dict:
     if not key:
         key = str(uuid.uuid4())
     if key not in _user_cache:
-        ud = user_db.get_user_data(key) if "@" in key else {
+        default_data = {
             "model": TEXT_MODEL,
             "pending_images": [],
             "text_chat_history": [],
@@ -212,6 +212,14 @@ def _get_user_data() -> dict:
             "text_context_filename": None,
             "rag_add_mode": False,
         }
+        if "@" in key:
+            try:
+                ud = user_db.get_user_data(key)
+            except Exception as e:
+                logger.exception("Не удалось загрузить user_data из SQLite для %s: %s", key, e)
+                ud = dict(default_data)
+        else:
+            ud = dict(default_data)
         _user_cache[key] = ud
     return _user_cache[key]
 
@@ -220,7 +228,11 @@ def _save_user_data() -> None:
     """Сохраняет данные в SQLite (для авторизованных по email)."""
     key = _get_user_key()
     if key and "@" in key and key in _user_cache:
-        user_db.save_user_data(key, _user_cache[key])
+        try:
+            user_db.save_user_data(key, _user_cache[key])
+        except Exception as e:
+            # Не роняем API при проблемах с файловыми правами/SQLite.
+            logger.exception("Не удалось сохранить user_data в SQLite для %s: %s", key, e)
 
 
 def _set_model(model: str) -> None:
