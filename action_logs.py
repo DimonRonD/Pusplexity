@@ -11,7 +11,8 @@ import os
 import re
 import sqlite3
 import threading
-from datetime import date, datetime, time, timezone
+import time as time_module
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,9 @@ logger = logging.getLogger(__name__)
 _DB_DIR = Path(os.environ.get("LOG_DB_PATH", Path(__file__).parent))
 DB_PATH = _DB_DIR / "action_logs.db"
 _LOCK = threading.Lock()
+_LOG_RETENTION_DAYS = int(os.environ.get("LOG_RETENTION_DAYS", "30"))
+_PURGE_MIN_INTERVAL_SEC = 24 * 60 * 60
+_last_purge_ts = 0.0
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS action_logs (
@@ -51,7 +55,50 @@ def _init_db() -> None:
             conn.execute("ALTER TABLE action_logs ADD COLUMN component TEXT")
         if "tokens_total" not in columns:
             conn.execute("ALTER TABLE action_logs ADD COLUMN tokens_total INTEGER")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_action_logs_created_at ON action_logs(created_at)"
+        )
         conn.commit()
+
+
+def _purge_old_logs_locked(retention_days: int) -> int:
+    if retention_days <= 0:
+        return 0
+    cutoff_dt = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    cutoff_iso = cutoff_dt.isoformat()
+    with _get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM action_logs WHERE created_at < ?",
+            (cutoff_iso,),
+        )
+        conn.commit()
+        return int(cur.rowcount or 0)
+
+
+def maybe_purge_old_logs() -> int:
+    """
+    Периодически удаляет старые логи (по умолчанию старше 30 дней).
+    Запускается с троттлингом: не чаще 1 раза в сутки.
+    """
+    global _last_purge_ts
+    now_ts = time_module.time()
+    if now_ts - _last_purge_ts < _PURGE_MIN_INTERVAL_SEC:
+        return 0
+    with _LOCK:
+        # Повторная проверка после захвата lock.
+        now_ts = time_module.time()
+        if now_ts - _last_purge_ts < _PURGE_MIN_INTERVAL_SEC:
+            return 0
+        _init_db()
+        deleted = _purge_old_logs_locked(_LOG_RETENTION_DAYS)
+        _last_purge_ts = now_ts
+        if deleted > 0:
+            logger.info(
+                "Удалено старых записей логов: %d (retention=%d days)",
+                deleted,
+                _LOG_RETENTION_DAYS,
+            )
+        return deleted
 
 
 def log_action(
@@ -67,6 +114,7 @@ def log_action(
     Безопасно записывает событие в БД логов, не падая при ошибках.
     """
     try:
+        maybe_purge_old_logs()
         with _LOCK:
             _init_db()
             with _get_conn() as conn:

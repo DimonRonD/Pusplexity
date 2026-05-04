@@ -62,6 +62,7 @@ pip install -r requirements.txt
    - `DOC_PARSE_TIMEOUT_SEC` — таймаут извлечения текста из документа в веб-режиме
    - `MAX_CONTEXT_CHARS` — максимальный размер сохраняемого текстового контекста
    - `USER_DATA_RETENTION_DAYS` — срок хранения пользовательских данных в SQLite
+   - `LOG_RETENTION_DAYS` — срок хранения action-логов (дни, по умолчанию `30`, автоочистка раз в сутки)
    - `TRAEFIK_CERT_RESOLVER` — имя ACME-resolver в Traefik (например `mytlschallenge`) для HTTPS-роутинга
 
 ## Структура проекта
