@@ -247,7 +247,7 @@ def run_telegram_bot():
         "gpt-image-1-mini": "gpt-image-1-mini",
         "dall-e-2": "DALL-E 2",
         "create": "gpt-image-1.5 (create)",
-        "dalle_create": "DALL-E 2 (create)",
+        "dalle_create": f"DALL-E 2 (create → {processor.COMPAT_DALLE_CREATE_MODEL})",
         "rag_text": "RAG",
     }
 
@@ -303,10 +303,11 @@ def run_telegram_bot():
 
     async def cmd_dalle_gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "dalle_create")
+        actual_model = processor.COMPAT_DALLE_CREATE_MODEL
         await update.message.reply_text(
             "✅ Режим: DALL-E 2 Gen (режим сохранён)\n\n"
             "Генерация по тексту без фото. Отправьте текстовое описание — получите изображение.\n"
-            "Модель: DALL-E 2 (до 1000 символов)"
+            f"Фактическая модель OpenAI: {actual_model} (до 1000 символов)"
         )
 
     TELEGRAM_MAX_MESSAGE = 4000  # лимит Telegram 4096, 4000 для совместимости
@@ -347,7 +348,7 @@ def run_telegram_bot():
             "/image15 — gpt-image-1.5: редактирование 1–10 фото.\n"
             "/dalle — gpt-image-1-mini: редактирование 1–10 фото.\n"
             "/create — Генерация по тексту (gpt-image-1.5).\n"
-            "/dalle_gen — Генерация по тексту (DALL-E 2, до 1000 символов).\n\n"
+            f"/dalle_gen — Генерация по тексту (DALL-E 2 alias → {processor.COMPAT_DALLE_CREATE_MODEL}, до 1000 символов).\n\n"
             "◾ RAG — база знаний\n"
             "/rag_add — Включить режим загрузки. Отправьте TXT, PDF, XLSX, DOCX, MD.\n"
             "/rag_index — Индексировать файлы из data/ в ChromaDB.\n"
@@ -973,6 +974,7 @@ def run_telegram_bot():
         # Режим dalle_create: только текст → изображение (images.generate, DALL-E 2)
         if model == "dalle_create":
             model_label = MODEL_LABELS.get(model, model)
+            actual_model = processor.COMPAT_DALLE_CREATE_MODEL
             message = await update.message.reply_text(
                 f"Генерирую изображение ({model_label})…"
             )
@@ -980,7 +982,12 @@ def run_telegram_bot():
                 user.id,
                 "ai_request",
                 request_text=json.dumps(
-                    {"mode": "dalle_create", "model": "dall-e-2", "prompt": prompt},
+                    {
+                        "mode": "dalle_create",
+                        "model": "dall-e-2",
+                        "actual_model": actual_model,
+                        "prompt": prompt,
+                    },
                     ensure_ascii=False,
                 ),
                 component="dalle_create",
@@ -1010,7 +1017,7 @@ def run_telegram_bot():
                 return
             output = Path("temp_output.png")
             output.write_bytes(result_bytes)
-            caption = f"Модель: {model_label}"
+            caption = f"Модель: {model_label}\nФактическая модель OpenAI: {actual_model}"
             if usage_str:
                 caption += f"\n{usage_str}"
             try:
