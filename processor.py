@@ -61,6 +61,8 @@ class ImageProcessor:
     QUALITY = "high"
     SIZE = "1536x1024"
     OUTPUT_FORMAT = "png"
+    COMPAT_DALLE_EDIT_MODEL = "gpt-image-1"
+    COMPAT_DALLE_CREATE_MODEL = "gpt-image-1.5"
 
     SYSTEM_PROMPT = (
         "Критически важно: используй ТОЛЬКО приложенные изображения. "
@@ -101,13 +103,17 @@ class ImageProcessor:
         )
 
         model = model or self.MODEL
+        if model == "dall-e-2":
+            # Legacy alias: old DALL-E 2 slug may be unavailable in current API.
+            # Keep user-facing mode name, but route to a compatible model.
+            model = self.COMPAT_DALLE_EDIT_MODEL
 
         if not 1 <= len(images) <= 10:
             logger.warning("Недопустимое количество изображений: %d", len(images))
             raise ValueError("Количество изображений должно быть от 1 до 10")
 
-        if model == "dall-e-2" and len(images) > 1:
-            logger.info("DALL-E 2 поддерживает только 1 изображение, берём первое")
+        if model == self.COMPAT_DALLE_EDIT_MODEL and len(images) > 1:
+            logger.info("Режим DALL-E (compat): поддерживается 1 изображение, берём первое")
             images = images[:1]
             size = "1024x1024"
 
@@ -373,14 +379,16 @@ class ImageProcessor:
             Кортеж (байты изображения, строка с использованием токенов или None).
         """
         model = model or self.MODEL
+        if model == "dall-e-2":
+            # Legacy alias compatibility for generate endpoint.
+            model = self.COMPAT_DALLE_CREATE_MODEL
 
         if not prompt or not prompt.strip():
             raise ValueError("Текстовое описание не может быть пустым")
 
-        # DALL-E 2: только 1024x1024, quality=standard
-        if model == "dall-e-2":
+        # Compatibility preset for legacy DALL-E mode.
+        if model == self.COMPAT_DALLE_CREATE_MODEL:
             size = "1024x1024"
-            quality = "standard"
 
         logger.info("Генерация изображения по тексту: model=%s, prompt_len=%d", model, len(prompt or ""))
 

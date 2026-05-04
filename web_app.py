@@ -150,6 +150,7 @@ MODELS = {
     TEXT_MODEL: TEXT_MODEL,
     "gpt-image-1": "gpt-image-1",
     "gpt-image-1.5": "gpt-image-1.5",
+    "gpt-image-1-mini": "gpt-image-1-mini",
     "dall-e-2": "dall-e-2",
     "create": "create",
     "dalle_create": "dalle_create",
@@ -158,6 +159,7 @@ MODELS = {
 MODEL_LABELS = {
     "gpt-image-1": "gpt-image-1",
     "gpt-image-1.5": "gpt-image-1.5",
+    "gpt-image-1-mini": "gpt-image-1-mini",
     "dall-e-2": "DALL-E 2",
     "create": "gpt-image-1.5 (create)",
     "dalle_create": "DALL-E 2 (create)",
@@ -534,8 +536,8 @@ def api_command():
         _set_model("gpt-image-1.5")
         return {"ok": True, "message": "✅ Модель: gpt-image-1.5. Можно загружать 1–10 фото."}
     if cmd == "dalle":
-        _set_model("dall-e-2")
-        return {"ok": True, "message": "✅ Модель: DALL-E 2. Поддерживает только 1 изображение."}
+        _set_model("gpt-image-1-mini")
+        return {"ok": True, "message": "✅ Модель: gpt-image-1-mini. Можно загружать 1–10 фото."}
     if cmd == "create":
         _set_model("create")
         return {"ok": True, "message": "✅ Режим Create. Отправьте текстовое описание — получите изображение."}
@@ -556,7 +558,7 @@ def api_command():
             f"Текст — Чат {TEXT_MODEL}: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
             "Image1 — gpt-image-1: редактирование 1–10 фото.\n"
             "Image15 — gpt-image-1.5: редактирование 1–10 фото.\n"
-            "DALL-E — DALL-E 2: редактирование 1 фото.\n"
+            "DALL-E — gpt-image-1-mini: редактирование 1–10 фото.\n"
             "Create — Генерация изображения по тексту (gpt-image-1.5).\n"
             "DALL-E Gen — Генерация по тексту (DALL-E 2, до 1000 символов).\n\n"
             "◾ RAG — база знаний\n"
@@ -824,7 +826,7 @@ def api_send():
         return {"ok": True, "type": "text", "message": result_text, "model": model}
 
     # Режимы редактирования изображений
-    if model in ("gpt-image-1", "gpt-image-1.5", "dall-e-2") and images and not text:
+    if model in ("gpt-image-1", "gpt-image-1.5", "gpt-image-1-mini", "dall-e-2") and images and not text:
         ud["pending_images"] = images
         return {"ok": True, "type": "text", "message": (
             f"Получено {len(images)} изображений. Модель: {MODEL_LABELS.get(model, model)}. "
