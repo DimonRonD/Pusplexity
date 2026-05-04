@@ -155,6 +155,13 @@ def run_telegram_bot():
             return None
 
     def _format_logs_report(stats: dict) -> str:
+        my_requests = stats["mine"]["total_user_requests"]
+        total_requests = stats["total"]["total_user_requests"]
+        my_tokens = stats["mine"]["total_tokens"]
+        total_tokens = stats["total"]["total_tokens"]
+        req_share = (my_requests / total_requests * 100) if total_requests else 0.0
+        tok_share = (my_tokens / total_tokens * 100) if total_tokens else 0.0
+
         my_components = stats["mine"].get("components", {})
         my_comp_lines = (
             "\n".join(f"  • {k}: {v}" for k, v in my_components.items())
@@ -170,14 +177,16 @@ def run_telegram_bot():
         return (
             f"📊 Статистика за {stats['date']}\n\n"
             f"👤 Моя статистика (Telegram):\n"
-            f"• Запросов: {stats['mine']['total_user_requests']}\n"
-            f"• Токенов: {stats['mine']['total_tokens']}\n"
+            f"• Запросов: {my_requests}\n"
+            f"• Токенов: {my_tokens}\n"
+            f"• Доля запросов от общего: {req_share:.1f}%\n"
+            f"• Доля токенов от общего: {tok_share:.1f}%\n"
             f"Компоненты:\n{my_comp_lines}\n\n"
             f"🌍 Суммарно за сутки (все пользователи):\n"
             f"• Уникальные пользователи Telegram: {stats['unique_telegram_users']}\n"
             f"• Уникальные пользователи Web: {stats['unique_web_users']}\n"
-            f"• Запросов: {stats['total']['total_user_requests']}\n"
-            f"• Токенов: {stats['total']['total_tokens']}\n"
+            f"• Запросов: {total_requests}\n"
+            f"• Токенов: {total_tokens}\n"
             f"Компоненты:\n{total_comp_lines}"
         )
 
