@@ -164,7 +164,7 @@ MODEL_LABELS = {
     "gpt-image-1-mini": "gpt-image-1-mini",
     "dall-e-2": "DALL-E 2",
     "create": "gpt-image-1.5 (create)",
-    "dalle_create": f"DALL-E 2 (create → {processor.COMPAT_DALLE_CREATE_MODEL})",
+    "dalle_create": f"DALL-E 2 (create → {ImageProcessor.COMPAT_DALLE_CREATE_MODEL})",
     "rag_text": "RAG",
 }
 RAG_ALLOWED_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".text")
