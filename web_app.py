@@ -159,12 +159,31 @@ _USER_DATA_RETENTION_DAYS = int(os.environ.get("USER_DATA_RETENTION_DAYS", "30")
 
 
 def _api_error(message: str, status: int = 400) -> tuple[dict, int]:
+    # Логируем ошибки единообразно в action_logs (text = содержание ошибки).
+    try:
+        if status >= 400:
+            _log_web_action(
+                "error",
+                response_text=message,
+                component=request.path if request else "web_api",
+            )
+    except Exception:
+        # Не ломаем основную обработку, если запись лога не удалась.
+        pass
     return {"ok": False, "error": message}, status
 
 
 def _api_internal_error(log_message: str, exc: Exception) -> tuple[dict, int]:
     request_id = uuid.uuid4().hex[:10]
     logger.exception("%s (request_id=%s): %s", log_message, request_id, exc)
+    try:
+        _log_web_action(
+            "error",
+            response_text=f"{log_message}: {exc}",
+            component=request.path if request else "web_internal",
+        )
+    except Exception:
+        pass
     return _api_error(f"Внутренняя ошибка (id={request_id})", 500)
 
 

@@ -131,6 +131,21 @@ def run_telegram_bot():
             tokens_total=tokens_total,
         )
 
+    def _log_tg_error(
+        user_id: int | str,
+        exc: Exception | str,
+        *,
+        component: str | None = None,
+        request_text: str | None = None,
+    ) -> None:
+        _log_tg_action(
+            user_id=user_id,
+            action="error",
+            request_text=request_text,
+            response_text=str(exc),
+            component=component or "telegram",
+        )
+
     def _parse_logs_date(raw: str | None):
         if not raw:
             return datetime.now(timezone.utc).date()
@@ -438,10 +453,12 @@ def run_telegram_bot():
             store = _get_rag_store()
             results = await asyncio.to_thread(store.query, query, 5)
         except ValueError as e:
+            _log_tg_error(update.effective_user.id, e, component="rag")
             await msg.edit_text(str(e))
             return
         except Exception as e:
             logger.exception("Ошибка RAG query: %s", e)
+            _log_tg_error(update.effective_user.id, e, component="rag")
             await msg.edit_text(f"Ошибка: {e}")
             return
         if not results:
@@ -487,6 +504,7 @@ def run_telegram_bot():
             )
         except Exception as e:
             logger.exception("Ошибка OpenAI для /rag_text: %s", e)
+            _log_tg_error(update.effective_user.id, e, component="rag", request_text=query)
             await msg.edit_text(f"Ошибка: {e}")
             return
         _update_chat_history(
@@ -890,6 +908,7 @@ def run_telegram_bot():
                     model="gpt-image-1.5",
                 )
             except ValueError as e:
+                _log_tg_error(user.id, e, component="create", request_text=prompt)
                 await message.edit_text(str(e))
                 return
             except Exception as e:
@@ -902,6 +921,7 @@ def run_telegram_bot():
                         user.id,
                         e,
                     )
+                _log_tg_error(user.id, e, component="create", request_text=prompt)
                 await message.edit_text(err_msg)
                 return
             output = Path("temp_output.png")
@@ -948,6 +968,7 @@ def run_telegram_bot():
                     model="dall-e-2",
                 )
             except ValueError as e:
+                _log_tg_error(user.id, e, component="dalle_create", request_text=prompt)
                 await message.edit_text(str(e))
                 return
             except Exception as e:
@@ -960,6 +981,7 @@ def run_telegram_bot():
                         user.id,
                         e,
                     )
+                _log_tg_error(user.id, e, component="dalle_create", request_text=prompt)
                 await message.edit_text(err_msg)
                 return
             output = Path("temp_output.png")
@@ -1033,10 +1055,12 @@ def run_telegram_bot():
                         history=text_history if text_history else None,
                     )
             except (ValueError, IndexError) as e:
+                _log_tg_error(user.id, e, component="text", request_text=prompt)
                 await message.edit_text(str(e))
                 return
             except Exception as e:
                 logger.exception("Ошибка текстового режима для user_id=%s: %s", user.id, e)
+                _log_tg_error(user.id, e, component="text", request_text=prompt)
                 await message.edit_text(f"Ошибка: {e}")
                 return
 
@@ -1089,6 +1113,7 @@ def run_telegram_bot():
             )
         except ValueError as e:
             logger.warning("Ошибка валидации для user_id=%s: %s", user.id, e)
+            _log_tg_error(user.id, e, component="image_edit", request_text=prompt)
             await message.edit_text(str(e))
             return
         except Exception as e:
@@ -1101,6 +1126,7 @@ def run_telegram_bot():
                     user.id,
                     e,
                 )
+            _log_tg_error(user.id, e, component="image_edit", request_text=prompt)
             await message.edit_text(err_msg)
             return
 
