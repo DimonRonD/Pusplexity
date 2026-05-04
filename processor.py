@@ -41,6 +41,19 @@ def _format_usage(usage) -> str | None:
     return f"Токены: {total}"
 
 
+def _usage_total_tokens(usage) -> int | None:
+    if not usage or not hasattr(usage, "total_tokens"):
+        return None
+    total = getattr(usage, "total_tokens", None)
+    if total is None:
+        return None
+    try:
+        total_int = int(total)
+    except (TypeError, ValueError):
+        return None
+    return total_int if total_int >= 0 else None
+
+
 class ImageProcessor:
     """Обработчик изображений через OpenAI gpt-image-1.5."""
 
@@ -236,7 +249,7 @@ class ImageProcessor:
         *,
         model: str = TEXT_MODEL,
         history: list[dict] | None = None,
-    ) -> str:
+    ) -> tuple[str, int | None]:
         """
         Текстовый режим: распознавание/анализ изображения, возврат текста.
         Поддерживает 1 изображение. history — контекст диалога (без изображений).
@@ -274,7 +287,7 @@ class ImageProcessor:
         )
         text = response.choices[0].message.content or ""
         logger.info("Текстовый режим: ответ %d символов", len(text))
-        return text
+        return text, _usage_total_tokens(getattr(response, "usage", None))
 
     def process_text_only(
         self,
@@ -282,7 +295,7 @@ class ImageProcessor:
         *,
         model: str = TEXT_MODEL,
         history: list[dict] | None = None,
-    ) -> str:
+    ) -> tuple[str, int | None]:
         """
         Чат только по тексту, без изображений.
         history: список {"role": "user"|"assistant", "content": "..."} для контекста.
@@ -299,7 +312,7 @@ class ImageProcessor:
         )
         text = response.choices[0].message.content or ""
         logger.info("Текстовый чат: ответ %d символов", len(text))
-        return text
+        return text, _usage_total_tokens(getattr(response, "usage", None))
 
     def process_text_with_rag_context(
         self,
@@ -308,7 +321,7 @@ class ImageProcessor:
         *,
         model: str = TEXT_MODEL,
         history: list[dict] | None = None,
-    ) -> str:
+    ) -> tuple[str, int | None]:
         """
         Ответ на вопрос с контекстом из RAG.
         history: список {"role": "user"|"assistant", "content": "..."} для контекста диалога.
@@ -334,7 +347,7 @@ class ImageProcessor:
         )
         text = response.choices[0].message.content or ""
         logger.info("RAG чат: ответ %d символов", len(text))
-        return text
+        return text, _usage_total_tokens(getattr(response, "usage", None))
 
     def process_create(
         self,

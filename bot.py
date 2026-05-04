@@ -5,15 +5,23 @@ Pusplexity — чат-бот для обработки изображений ч
 """
 
 import asyncio
+import io
+import json
 import logging
 import os
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-from action_logs import log_action
+from action_logs import (
+    build_daily_csv,
+    build_daily_stats,
+    extract_total_tokens,
+    log_action,
+)
 from processor import ImageProcessor
 from rag_store import DATA_DIR, RAGStore, load_document
 
@@ -110,6 +118,8 @@ def run_telegram_bot():
         action: str,
         request_text: str | None = None,
         response_text: str | None = None,
+        component: str | None = None,
+        tokens_total: int | None = None,
     ) -> None:
         log_action(
             actor_id=str(user_id),
@@ -117,6 +127,31 @@ def run_telegram_bot():
             action=action,
             request_text=request_text,
             response_text=response_text,
+            component=component,
+            tokens_total=tokens_total,
+        )
+
+    def _parse_logs_date(raw: str | None):
+        if not raw:
+            return datetime.now(timezone.utc).date()
+        try:
+            return datetime.strptime(raw.strip(), "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+    def _format_logs_report(stats: dict) -> str:
+        components = stats.get("components", {})
+        if components:
+            comp_lines = "\n".join(f"  • {k}: {v}" for k, v in components.items())
+        else:
+            comp_lines = "  • нет данных"
+        return (
+            f"📊 Статистика за {stats['date']}\n\n"
+            f"• Уникальные пользователи Telegram: {stats['unique_telegram_users']}\n"
+            f"• Уникальные пользователи Web: {stats['unique_web_users']}\n"
+            f"• Всего запросов пользователей: {stats['total_user_requests']}\n"
+            f"• Израсходовано токенов: {stats['total_tokens']}\n\n"
+            f"Компоненты:\n{comp_lines}"
         )
 
     LEGACY_TEXT_MODEL = "gpt-5.2"
@@ -167,7 +202,6 @@ def run_telegram_bot():
             "◾ /rag_add, /rag_index, /rag_text — RAG: база знаний по документам\n\n"
             "/help — полная справка по всем командам"
         )
-        _log_tg_action(user.id, "command:/start")
 
     MODEL_LABELS = {
         TEXT_MODEL: TEXT_MODEL,
@@ -204,7 +238,6 @@ def run_telegram_bot():
             "Можно загружать 1–10 фото (альбомом или по одному). "
             "Фото объединяются для обработки."
         )
-        _log_tg_action(update.effective_user.id, "command:/image1")
 
     async def cmd_image15(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "gpt-image-1.5")
@@ -213,7 +246,6 @@ def run_telegram_bot():
             "Можно загружать 1–10 фото (альбомом или по одному). "
             "Фото объединяются для обработки."
         )
-        _log_tg_action(update.effective_user.id, "command:/image15")
 
     async def cmd_dalle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "dall-e-2")
@@ -221,7 +253,6 @@ def run_telegram_bot():
             "✅ Модель: DALL-E 2 (режим сохранён)\n\n"
             "⚠️ DALL-E 2 поддерживает только 1 изображение"
         )
-        _log_tg_action(update.effective_user.id, "command:/dalle")
 
     async def cmd_create(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "create")
@@ -230,7 +261,6 @@ def run_telegram_bot():
             "Генерация по тексту без фото. Отправьте текстовое описание — получите изображение.\n"
             "Модель: gpt-image-1.5"
         )
-        _log_tg_action(update.effective_user.id, "command:/create")
 
     async def cmd_dalle_gen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "dalle_create")
@@ -239,7 +269,6 @@ def run_telegram_bot():
             "Генерация по тексту без фото. Отправьте текстовое описание — получите изображение.\n"
             "Модель: DALL-E 2 (до 1000 символов)"
         )
-        _log_tg_action(update.effective_user.id, "command:/dalle_gen")
 
     TELEGRAM_MAX_MESSAGE = 4000  # лимит Telegram 4096, 4000 для совместимости
     CHAT_HISTORY_SIZE = 20  # последних сообщений (user+assistant) для контекста
@@ -262,14 +291,12 @@ def run_telegram_bot():
             "• Загрузите DOCX, PDF, XLSX, TXT, MD как контекст — затем задавайте вопросы\n\n"
             "Длинные ответы разбиваются на несколько сообщений."
         )
-        _log_tg_action(update.effective_user.id, "command:/text")
 
     async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["text_chat_history"] = []
         context.user_data.pop("text_context", None)
         context.user_data.pop("text_context_filename", None)
         await update.message.reply_text("✅ История сеанса /text очищена (включая загруженный контекст).")
-        _log_tg_action(update.effective_user.id, "command:/clear")
 
     async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
@@ -289,10 +316,27 @@ def run_telegram_bot():
             "/rag_delete <источник> — Удалить источник и его данные из ChromaDB.\n"
             "/rag_text — Режим RAG. Задавайте вопросы, ответы по документам. До смены режима.\n"
             "/rag_clear — Очистить историю сеанса /rag_text.\n\n"
+            "/logs [YYYY-MM-DD] — статистика и CSV-лог за дату (по умолчанию сегодня).\n\n"
             "/clear — Очистить историю и контекст документа в /text.\n"
             "/help — Эта справка."
         )
-        _log_tg_action(update.effective_user.id, "command:/help")
+
+    async def cmd_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        raw_date = " ".join(context.args or []).strip() if context.args else ""
+        target_date = _parse_logs_date(raw_date)
+        if target_date is None:
+            await update.message.reply_text("Неверный формат даты. Используйте: /logs 2026-05-03")
+            return
+        stats = build_daily_stats(target_date)
+        report = _format_logs_report(stats)
+        await update.message.reply_text(report)
+        csv_bytes = build_daily_csv(target_date)
+        filename = f"logs_{target_date.isoformat()}.csv"
+        await update.message.reply_document(
+            document=io.BytesIO(csv_bytes),
+            filename=filename,
+            caption=f"CSV-лог за {target_date.isoformat()}",
+        )
 
     RAG_ALLOWED_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".text")
     TEXT_CONTEXT_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".text")
@@ -311,7 +355,6 @@ def run_telegram_bot():
             "Отправьте документы (TXT, PDF, XLSX, DOCX). Можно несколько подряд.\n"
             "Чтобы выйти из режима — отправьте /rag_index или любую другую команду."
         )
-        _log_tg_action(update.effective_user.id, "command:/rag_add")
 
     async def cmd_rag_index(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["rag_add_mode"] = False
@@ -336,7 +379,6 @@ def run_telegram_bot():
         for src, cnt in sorted(counts.items()):
             lines.append(f"  • {src}: {cnt} чанков")
         await msg.edit_text("\n".join(lines))
-        _log_tg_action(update.effective_user.id, "command:/rag_index")
 
     async def cmd_rag_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
@@ -356,12 +398,10 @@ def run_telegram_bot():
             return
         text = "📚 Источники в RAG:\n\n" + "\n".join(f"• {s}" for s in sources)
         await update.message.reply_text(text)
-        _log_tg_action(update.effective_user.id, "command:/rag_list")
 
     async def cmd_rag_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["rag_chat_history"] = []
         await update.message.reply_text("✅ История сеанса /rag_text очищена.")
-        _log_tg_action(update.effective_user.id, "command:/rag_clear")
 
     async def cmd_rag_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         source = " ".join(context.args or []).strip() if context.args else ""
@@ -387,12 +427,12 @@ def run_telegram_bot():
         await update.message.reply_text(
             f"✅ Источник «{source}» удалён ({count} чанков, файл из data/ при наличии)."
         )
-        _log_tg_action(update.effective_user.id, "command:/rag_delete", request_text=source)
 
     async def _process_rag_query(
         update: Update, context: ContextTypes.DEFAULT_TYPE, query: str
     ) -> None:
         """Обрабатывает RAG-запрос (поиск + ответ)."""
+        _log_tg_action(update.effective_user.id, "user_request", request_text=query)
         msg = await update.message.reply_text("⏳ Ищу в базе и формирую ответ…")
         try:
             store = _get_rag_store()
@@ -422,8 +462,23 @@ def run_telegram_bot():
         sources_line = ", ".join(f"{s} ({d})" for s, d in sorted(source_scores.items()))
 
         rag_history = list(context.user_data.get("rag_chat_history", []))
+        _log_tg_action(
+            update.effective_user.id,
+            "ai_request",
+            request_text=json.dumps(
+                {
+                    "mode": "rag_text",
+                    "model": TEXT_MODEL,
+                    "query": query,
+                    "history": rag_history,
+                    "cache_context": rag_context,
+                },
+                ensure_ascii=False,
+            ),
+            component="rag",
+        )
         try:
-            result_text = await asyncio.to_thread(
+            result_text, used_tokens = await asyncio.to_thread(
                 processor.process_text_with_rag_context,
                 query,
                 rag_context,
@@ -446,7 +501,7 @@ def run_telegram_bot():
                 await update.message.reply_text(part)
         await update.message.reply_text(f"🤖 Модель ответа: {TEXT_MODEL}")
         await update.message.reply_text(f"📎 Источники (score): {sources_line}")
-        _log_tg_action(update.effective_user.id, "rag_query", request_text=query, response_text=result_text)
+        _log_tg_action(update.effective_user.id, "ai_response", response_text=result_text, component="rag", tokens_total=used_tokens)
 
     async def cmd_rag_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_model(context, "rag_text")
@@ -718,7 +773,8 @@ def run_telegram_bot():
             len(text),
             len(images),
         )
-        _log_tg_action(user.id, "message:text", request_text=text)
+        if text:
+            _log_tg_action(user.id, "user_request", request_text=text)
 
         # Режим RAG: текст как вопрос по документам
         if get_model(context) == "rag_text":
@@ -818,6 +874,15 @@ def run_telegram_bot():
             message = await update.message.reply_text(
                 f"Генерирую изображение ({model_label})…"
             )
+            _log_tg_action(
+                user.id,
+                "ai_request",
+                request_text=json.dumps(
+                    {"mode": "create", "model": "gpt-image-1.5", "prompt": prompt},
+                    ensure_ascii=False,
+                ),
+                component="create",
+            )
             try:
                 result_bytes, usage_str = await asyncio.to_thread(
                     processor.process_create,
@@ -852,7 +917,13 @@ def run_telegram_bot():
             finally:
                 output.unlink(missing_ok=True)
             await message.delete()
-            _log_tg_action(user.id, "openai:create", request_text=prompt, response_text=usage_str or "image_generated")
+            _log_tg_action(
+                user.id,
+                "ai_response",
+                response_text=usage_str or "image_generated",
+                component="create",
+                tokens_total=extract_total_tokens(usage_str),
+            )
             return
 
         # Режим dalle_create: только текст → изображение (images.generate, DALL-E 2)
@@ -860,6 +931,15 @@ def run_telegram_bot():
             model_label = MODEL_LABELS.get(model, model)
             message = await update.message.reply_text(
                 f"Генерирую изображение ({model_label})…"
+            )
+            _log_tg_action(
+                user.id,
+                "ai_request",
+                request_text=json.dumps(
+                    {"mode": "dalle_create", "model": "dall-e-2", "prompt": prompt},
+                    ensure_ascii=False,
+                ),
+                component="dalle_create",
             )
             try:
                 result_bytes, usage_str = await asyncio.to_thread(
@@ -895,7 +975,13 @@ def run_telegram_bot():
             finally:
                 output.unlink(missing_ok=True)
             await message.delete()
-            _log_tg_action(user.id, "openai:dalle_create", request_text=prompt, response_text=usage_str or "image_generated")
+            _log_tg_action(
+                user.id,
+                "ai_response",
+                response_text=usage_str or "image_generated",
+                component="dalle_create",
+                tokens_total=extract_total_tokens(usage_str),
+            )
             return
 
         # Текстовый режим (latest): только текст ИЛИ 1 изображение + текст ИЛИ текст с контекстом документа
@@ -903,12 +989,28 @@ def run_telegram_bot():
             message = await update.message.reply_text("Обрабатываю…")
             text_history = list(context.user_data.get("text_chat_history", []))
             text_context = context.user_data.get("text_context")
+            _log_tg_action(
+                user.id,
+                "ai_request",
+                request_text=json.dumps(
+                    {
+                        "mode": "text",
+                        "model": model,
+                        "prompt": prompt,
+                        "history": text_history,
+                        "cache_context": text_context,
+                        "images_count": len(images),
+                    },
+                    ensure_ascii=False,
+                ),
+                component="text",
+            )
             try:
                 if images:
                     if len(images) > 1:
                         images = images[:1]
                         logger.info("Текстовый режим: берём 1 изображение")
-                    result_text = await asyncio.to_thread(
+                    result_text, used_tokens = await asyncio.to_thread(
                         processor.process_text_with_image,
                         images[0],
                         prompt,
@@ -916,7 +1018,7 @@ def run_telegram_bot():
                         history=text_history if text_history else None,
                     )
                 elif text_context:
-                    result_text = await asyncio.to_thread(
+                    result_text, used_tokens = await asyncio.to_thread(
                         processor.process_text_with_rag_context,
                         prompt,
                         text_context,
@@ -924,7 +1026,7 @@ def run_telegram_bot():
                         history=text_history if text_history else None,
                     )
                 else:
-                    result_text = await asyncio.to_thread(
+                    result_text, used_tokens = await asyncio.to_thread(
                         processor.process_text_only,
                         prompt,
                         model=model,
@@ -950,13 +1052,33 @@ def run_telegram_bot():
                 for part in parts:
                     await update.message.reply_text(part)
             await update.message.reply_text(f"🤖 Модель ответа: {model}")
-            _log_tg_action(user.id, "openai:text", request_text=prompt, response_text=result_text)
+            _log_tg_action(
+                user.id,
+                "ai_response",
+                response_text=result_text,
+                component="text",
+                tokens_total=used_tokens,
+            )
             return
 
         # Режим генерации изображений
         model_label = MODEL_LABELS.get(model, model)
         message = await update.message.reply_text(
             f"Обрабатываю изображения ({model_label})…"
+        )
+        _log_tg_action(
+            user.id,
+            "ai_request",
+            request_text=json.dumps(
+                {
+                    "mode": "image_edit",
+                    "model": model,
+                    "prompt": prompt,
+                    "images_count": len(images),
+                },
+                ensure_ascii=False,
+            ),
+            component="image_edit",
         )
         try:
             result_bytes, usage_str = await asyncio.to_thread(
@@ -1002,7 +1124,13 @@ def run_telegram_bot():
         finally:
             output.unlink(missing_ok=True)
         await message.delete()
-        _log_tg_action(user.id, f"openai:image_edit:{model}", request_text=prompt, response_text=usage_str or "image_generated")
+        _log_tg_action(
+            user.id,
+            "ai_response",
+            response_text=usage_str or "image_generated",
+            component="image_edit",
+            tokens_total=extract_total_tokens(usage_str),
+        )
 
     def main():
         persistence_path = os.environ.get("BOT_DATA_PATH", "bot_data.pickle")
@@ -1023,6 +1151,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("rag_delete", cmd_rag_delete))
         app.add_handler(CommandHandler("rag_text", cmd_rag_text))
         app.add_handler(CommandHandler("rag_clear", cmd_rag_clear))
+        app.add_handler(CommandHandler("logs", cmd_logs))
         app.add_handler(
             MessageHandler(
                 filters.Document.ALL & ~filters.Document.IMAGE,

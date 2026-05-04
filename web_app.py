@@ -7,17 +7,24 @@ Pusplexity — веб-интерфейс на Flask.
 
 import base64
 import concurrent.futures
+import json
 import logging
 import os
 import secrets
 import tempfile
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import user_db
 
-from action_logs import log_action
+from action_logs import (
+    build_daily_csv,
+    build_daily_stats,
+    extract_total_tokens,
+    log_action,
+)
 from flask import (
     Flask,
     redirect,
@@ -55,6 +62,8 @@ def _log_web_action(
     request_text: str | None = None,
     response_text: str | None = None,
     login: str | None = None,
+    component: str | None = None,
+    tokens_total: int | None = None,
 ) -> None:
     actor = (login or session.get("email") or "anonymous").strip()
     log_action(
@@ -63,6 +72,33 @@ def _log_web_action(
         action=action,
         request_text=request_text,
         response_text=response_text,
+        component=component,
+        tokens_total=tokens_total,
+    )
+
+
+def _parse_logs_date(raw: str | None):
+    if not raw:
+        return datetime.now(timezone.utc).date()
+    try:
+        return datetime.strptime(raw.strip(), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _format_logs_report(stats: dict) -> str:
+    components = stats.get("components", {})
+    if components:
+        comp_lines = "\n".join(f"  • {k}: {v}" for k, v in components.items())
+    else:
+        comp_lines = "  • нет данных"
+    return (
+        f"📊 Статистика за {stats['date']}\n\n"
+        f"• Уникальные пользователи Telegram: {stats['unique_telegram_users']}\n"
+        f"• Уникальные пользователи Web: {stats['unique_web_users']}\n"
+        f"• Всего запросов пользователей: {stats['total_user_requests']}\n"
+        f"• Израсходовано токенов: {stats['total_tokens']}\n\n"
+        f"Компоненты:\n{comp_lines}"
     )
 
 
@@ -395,18 +431,15 @@ def login():
         return render_template("login.html", error="Введите email и пароль")
     if not verify_credentials(email, password):
         _register_login_attempt(identity)
-        _log_web_action("login:failed", login=email)
         return render_template("login.html", error="Неверный email или пароль")
     session["email"] = email
     _login_attempts.pop(identity, None)
-    _log_web_action("login:success", login=email)
     return redirect(url_for("chat"))
 
 
 @app.route("/logout")
 def logout():
     # Не удаляем _user_data — память сохраняется для аккаунта
-    _log_web_action("logout")
     session.clear()
     return redirect(url_for("login"))
 
@@ -435,7 +468,6 @@ def api_command():
     if rate_error:
         return rate_error
     cmd = (request.form.get("command") or "").strip().lower()
-    _log_web_action("command", request_text=cmd)
     ud = _get_user_data()
 
     # Команды переключения режима
@@ -494,9 +526,24 @@ def api_command():
             "RAG Delete — Удалить источник и его данные из ChromaDB (укажите имя).\n"
             "RAG — Режим RAG. Задавайте вопросы, ответы по документам. До смены режима.\n"
             "RAG Clear — Очистить историю сеанса RAG.\n\n"
+            "Logs — Статистика и CSV-лог за сегодня.\n"
             "Clear — Очистить историю и контекст документа в режиме Текст.\n"
             "Help — Эта справка."
         )}
+    if cmd.startswith("logs"):
+        raw_date = cmd.replace("logs", "", 1).strip()
+        target_date = _parse_logs_date(raw_date or None)
+        if target_date is None:
+            return _api_error("Неверный формат даты. Используйте: logs 2026-05-03")
+        stats = build_daily_stats(target_date)
+        report = _format_logs_report(stats)
+        csv_bytes = build_daily_csv(target_date)
+        return {
+            "ok": True,
+            "message": report,
+            "csv_b64": base64.b64encode(csv_bytes).decode("utf-8"),
+            "csv_filename": f"logs_{target_date.isoformat()}.csv",
+        }
 
     # RAG
     if cmd == "rag_add":
@@ -567,7 +614,6 @@ def api_rag_delete():
         return _api_error(str(e))
     except Exception as e:
         return _api_internal_error("Ошибка удаления источника RAG", e)
-    _log_web_action("rag_delete", request_text=source, response_text=f"chunks_deleted={count}")
     return {"ok": True, "message": f"✅ Источник «{source}» удалён ({count} чанков)."}
 
 
@@ -581,7 +627,7 @@ def api_send():
         return rate_error
     text = (request.form.get("text") or "").strip()
     if text:
-        _log_web_action("request", request_text=text)
+        _log_web_action("user_request", request_text=text)
     ud = _get_user_data()
     model = _get_model()
     processor = ImageProcessor()
@@ -615,14 +661,28 @@ def api_send():
         context_parts = [f"[{src}]\n{doc}" for doc, src, _ in results]
         rag_context = "\n\n---\n\n".join(context_parts)
         rag_history = list(ud.get("rag_chat_history", []))
+        _log_web_action(
+            "ai_request",
+            request_text=json.dumps(
+                {
+                    "mode": "rag_text",
+                    "model": TEXT_MODEL,
+                    "query": text,
+                    "history": rag_history,
+                    "cache_context": rag_context,
+                },
+                ensure_ascii=False,
+            ),
+            component="rag",
+        )
         try:
-            result_text = processor.process_text_with_rag_context(
+            result_text, used_tokens = processor.process_text_with_rag_context(
                 text, rag_context, model=TEXT_MODEL, history=rag_history or None
             )
         except Exception as e:
             return _api_internal_error("Ошибка OpenAI для /rag_text", e)
         _update_chat_history("rag_chat_history", text, result_text)
-        _log_web_action("response:rag_text", request_text=text, response_text=result_text)
+        _log_web_action("ai_response", response_text=result_text, component="rag", tokens_total=used_tokens)
         source_scores = {}
         for doc, src, dist in results:
             if src:
@@ -646,13 +706,30 @@ def api_send():
             text = text[:1000] + "\n\n[... обрезано]"
         elif len(text) > 4000:
             text = text[:4000] + "\n\n[... обрезано]"
+        _log_web_action(
+            "ai_request",
+            request_text=json.dumps(
+                {
+                    "mode": "image_generate",
+                    "model": "dall-e-2" if model == "dalle_create" else "gpt-image-1.5",
+                    "prompt": text,
+                },
+                ensure_ascii=False,
+            ),
+            component="create" if model != "dalle_create" else "dalle_create",
+        )
         try:
             result_bytes, usage_str = processor.process_create(
                 text, model="dall-e-2" if model == "dalle_create" else "gpt-image-1.5"
             )
         except Exception as e:
             return _api_error(_format_image_error(e))
-        _log_web_action("response:image_generate", request_text=text, response_text=usage_str or "image_generated")
+        _log_web_action(
+            "ai_response",
+            response_text=usage_str or "image_generated",
+            component="create" if model != "dalle_create" else "dalle_create",
+            tokens_total=extract_total_tokens(usage_str),
+        )
         b64 = base64.b64encode(result_bytes).decode("utf-8")
         return {
             "ok": True,
@@ -668,25 +745,40 @@ def api_send():
             return _api_error("Введите сообщение или отправьте фото с подписью.")
         text_history = list(ud.get("text_chat_history", []))
         text_context = ud.get("text_context")
+        _log_web_action(
+            "ai_request",
+            request_text=json.dumps(
+                {
+                    "mode": "text",
+                    "model": model,
+                    "prompt": text,
+                    "history": text_history,
+                    "cache_context": text_context,
+                    "images_count": len(images),
+                },
+                ensure_ascii=False,
+            ),
+            component="text",
+        )
         try:
             if images:
                 images = images[:1]
-                result_text = processor.process_text_with_image(
+                result_text, used_tokens = processor.process_text_with_image(
                     images[0], text, model=model, history=text_history or None
                 )
             elif text_context:
-                result_text = processor.process_text_with_rag_context(
+                result_text, used_tokens = processor.process_text_with_rag_context(
                     text, text_context, model=model, history=text_history or None
                 )
             else:
-                result_text = processor.process_text_only(
+                result_text, used_tokens = processor.process_text_only(
                     text, model=model, history=text_history or None
                 )
         except Exception as e:
             return _api_internal_error("Ошибка текстового режима", e)
         user_msg = f"[Изображение] {text}" if images else text
         _update_chat_history("text_chat_history", user_msg, result_text)
-        _log_web_action("response:text", request_text=text, response_text=result_text)
+        _log_web_action("ai_response", response_text=result_text, component="text", tokens_total=used_tokens)
         ud["pending_images"] = []
         return {"ok": True, "type": "text", "message": result_text, "model": model}
 
@@ -701,11 +793,29 @@ def api_send():
         return _api_error("Сначала загрузите изображение, затем введите команду.")
     if len(text) > 4000:
         text = text[:4000] + "\n\n[... обрезано]"
+    _log_web_action(
+        "ai_request",
+        request_text=json.dumps(
+            {
+                "mode": "image_edit",
+                "model": model,
+                "prompt": text,
+                "images_count": len(images),
+            },
+            ensure_ascii=False,
+        ),
+        component="image_edit",
+    )
     try:
         result_bytes, usage_str = processor.process(images, text, model=model)
     except Exception as e:
         return _api_error(_format_image_error(e))
-    _log_web_action("response:image_edit", request_text=text, response_text=usage_str or "image_generated")
+    _log_web_action(
+        "ai_response",
+        response_text=usage_str or "image_generated",
+        component="image_edit",
+        tokens_total=extract_total_tokens(usage_str),
+    )
     ud["pending_images"] = []
     b64 = base64.b64encode(result_bytes).decode("utf-8")
     return {"ok": True, "type": "image", "image_b64": b64, "usage": usage_str, "model": model}
@@ -736,7 +846,6 @@ def api_upload():
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         dest = DATA_DIR / secure_filename(f.filename or f"upload-{uuid.uuid4().hex}")
         dest.write_bytes(raw)
-        _log_web_action("upload:rag_document", request_text=f.filename, response_text=f"saved={dest.name}")
         return {"ok": True, "message": f"✅ Сохранён: {f.filename}"}
 
     # Режим /text (latest): изображение для анализа ИЛИ документ для контекста
@@ -749,7 +858,6 @@ def api_upload():
         is_image = ext in ALLOWED_IMAGE_EXTENSIONS and _looks_like_image(raw)
         if is_image:
             ud["pending_images"] = [raw]
-            _log_web_action("upload:image_for_text", request_text=f.filename)
             return {"ok": True, "message": f"✅ Изображение «{f.filename}» загружено. Введите вопрос или описание для анализа."}
         if ext not in TEXT_CONTEXT_EXTENSIONS:
             return _api_error(f"Формат {ext} не поддерживается. Изображения: PNG, JPG, JPEG, WEBP, GIF. Документы: TXT, PDF, XLSX, DOCX, MD.")
@@ -765,7 +873,6 @@ def api_upload():
             ud["text_context"] = content.strip()
             ud["text_context_filename"] = f.filename
             _save_user_data()
-            _log_web_action("upload:text_context_document", request_text=f.filename, response_text=f"context_chars={len(content.strip())}")
         except concurrent.futures.TimeoutError:
             return _api_error("Обработка документа превысила лимит времени.", 408)
         except Exception as e:
@@ -786,7 +893,6 @@ def api_upload():
     if len(images) > 10:
         images = images[-10:]
     ud["pending_images"] = images
-    _log_web_action("upload:images_for_edit", request_text=f"count={len(images)}")
     return {"ok": True, "message": f"Получено {len(images)} изображений. Модель: {MODEL_LABELS.get(model, model)}. Введите команду."}
 
 

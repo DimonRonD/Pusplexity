@@ -316,6 +316,7 @@
             <button class="mode-btn" id="btnRagDelete"><i class="bi bi-trash"></i>RAG Delete</button>
             <button class="mode-btn" data-cmd="rag_clear"><i class="bi bi-eraser"></i>RAG Clear</button>
             <button class="mode-btn" data-cmd="clear"><i class="bi bi-x-circle"></i>Clear</button>
+            <button class="mode-btn" data-cmd="logs"><i class="bi bi-bar-chart"></i>Logs</button>
             <button class="mode-btn" data-cmd="help"><i class="bi bi-question-circle"></i>Help</button>
         </div>
     </div>
@@ -544,7 +545,17 @@ async function runCommand(cmd) {
     try {
         const r = await apiFetch('/api/command', { method: 'POST', body: fd });
         const data = await parseApiResponse(r);
-        if (data.ok) addMsg(data.message, false);
+        if (data.ok) {
+            addMsg(data.message, false);
+            if (data.csv_b64 && data.csv_filename) {
+                const link = document.createElement('a');
+                link.href = 'data:text/csv;base64,' + data.csv_b64;
+                link.download = data.csv_filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            }
+        }
         else addMsg('Ошибка: ' + (data.error || 'неизвестно'), false);
     } catch (e) {
         addMsg('Ошибка: ' + e.message, false);
