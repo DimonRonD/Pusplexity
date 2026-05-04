@@ -17,6 +17,7 @@ from pathlib import Path
 
 import user_db
 
+from action_logs import log_action
 from flask import (
     Flask,
     redirect,
@@ -47,6 +48,22 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 logger = logging.getLogger(__name__)
+
+
+def _log_web_action(
+    action: str,
+    request_text: str | None = None,
+    response_text: str | None = None,
+    login: str | None = None,
+) -> None:
+    actor = (login or session.get("email") or "anonymous").strip()
+    log_action(
+        actor_id=actor,
+        source="web",
+        action=action,
+        request_text=request_text,
+        response_text=response_text,
+    )
 
 
 @app.errorhandler(RequestEntityTooLarge)
@@ -378,15 +395,18 @@ def login():
         return render_template("login.html", error="Введите email и пароль")
     if not verify_credentials(email, password):
         _register_login_attempt(identity)
+        _log_web_action("login:failed", login=email)
         return render_template("login.html", error="Неверный email или пароль")
     session["email"] = email
     _login_attempts.pop(identity, None)
+    _log_web_action("login:success", login=email)
     return redirect(url_for("chat"))
 
 
 @app.route("/logout")
 def logout():
     # Не удаляем _user_data — память сохраняется для аккаунта
+    _log_web_action("logout")
     session.clear()
     return redirect(url_for("login"))
 
@@ -415,6 +435,7 @@ def api_command():
     if rate_error:
         return rate_error
     cmd = (request.form.get("command") or "").strip().lower()
+    _log_web_action("command", request_text=cmd)
     ud = _get_user_data()
 
     # Команды переключения режима
@@ -546,6 +567,7 @@ def api_rag_delete():
         return _api_error(str(e))
     except Exception as e:
         return _api_internal_error("Ошибка удаления источника RAG", e)
+    _log_web_action("rag_delete", request_text=source, response_text=f"chunks_deleted={count}")
     return {"ok": True, "message": f"✅ Источник «{source}» удалён ({count} чанков)."}
 
 
@@ -558,6 +580,8 @@ def api_send():
     if rate_error:
         return rate_error
     text = (request.form.get("text") or "").strip()
+    if text:
+        _log_web_action("request", request_text=text)
     ud = _get_user_data()
     model = _get_model()
     processor = ImageProcessor()
@@ -598,6 +622,7 @@ def api_send():
         except Exception as e:
             return _api_internal_error("Ошибка OpenAI для /rag_text", e)
         _update_chat_history("rag_chat_history", text, result_text)
+        _log_web_action("response:rag_text", request_text=text, response_text=result_text)
         source_scores = {}
         for doc, src, dist in results:
             if src:
@@ -627,6 +652,7 @@ def api_send():
             )
         except Exception as e:
             return _api_error(_format_image_error(e))
+        _log_web_action("response:image_generate", request_text=text, response_text=usage_str or "image_generated")
         b64 = base64.b64encode(result_bytes).decode("utf-8")
         return {
             "ok": True,
@@ -660,6 +686,7 @@ def api_send():
             return _api_internal_error("Ошибка текстового режима", e)
         user_msg = f"[Изображение] {text}" if images else text
         _update_chat_history("text_chat_history", user_msg, result_text)
+        _log_web_action("response:text", request_text=text, response_text=result_text)
         ud["pending_images"] = []
         return {"ok": True, "type": "text", "message": result_text, "model": model}
 
@@ -678,6 +705,7 @@ def api_send():
         result_bytes, usage_str = processor.process(images, text, model=model)
     except Exception as e:
         return _api_error(_format_image_error(e))
+    _log_web_action("response:image_edit", request_text=text, response_text=usage_str or "image_generated")
     ud["pending_images"] = []
     b64 = base64.b64encode(result_bytes).decode("utf-8")
     return {"ok": True, "type": "image", "image_b64": b64, "usage": usage_str, "model": model}
@@ -708,6 +736,7 @@ def api_upload():
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         dest = DATA_DIR / secure_filename(f.filename or f"upload-{uuid.uuid4().hex}")
         dest.write_bytes(raw)
+        _log_web_action("upload:rag_document", request_text=f.filename, response_text=f"saved={dest.name}")
         return {"ok": True, "message": f"✅ Сохранён: {f.filename}"}
 
     # Режим /text (latest): изображение для анализа ИЛИ документ для контекста
@@ -720,6 +749,7 @@ def api_upload():
         is_image = ext in ALLOWED_IMAGE_EXTENSIONS and _looks_like_image(raw)
         if is_image:
             ud["pending_images"] = [raw]
+            _log_web_action("upload:image_for_text", request_text=f.filename)
             return {"ok": True, "message": f"✅ Изображение «{f.filename}» загружено. Введите вопрос или описание для анализа."}
         if ext not in TEXT_CONTEXT_EXTENSIONS:
             return _api_error(f"Формат {ext} не поддерживается. Изображения: PNG, JPG, JPEG, WEBP, GIF. Документы: TXT, PDF, XLSX, DOCX, MD.")
@@ -735,6 +765,7 @@ def api_upload():
             ud["text_context"] = content.strip()
             ud["text_context_filename"] = f.filename
             _save_user_data()
+            _log_web_action("upload:text_context_document", request_text=f.filename, response_text=f"context_chars={len(content.strip())}")
         except concurrent.futures.TimeoutError:
             return _api_error("Обработка документа превысила лимит времени.", 408)
         except Exception as e:
@@ -755,6 +786,7 @@ def api_upload():
     if len(images) > 10:
         images = images[-10:]
     ud["pending_images"] = images
+    _log_web_action("upload:images_for_edit", request_text=f"count={len(images)}")
     return {"ok": True, "message": f"Получено {len(images)} изображений. Модель: {MODEL_LABELS.get(model, model)}. Введите команду."}
 
 

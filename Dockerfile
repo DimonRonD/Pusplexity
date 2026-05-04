@@ -8,7 +8,7 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_RETRIES=10
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot.py processor.py rag_store.py auth.py web_app.py user_db.py ./
+COPY bot.py processor.py rag_store.py auth.py web_app.py user_db.py action_logs.py ./
 COPY templates/ ./templates/
 COPY static/ ./static/
 
