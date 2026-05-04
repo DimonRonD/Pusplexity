@@ -62,7 +62,7 @@ class ImageProcessor:
     SIZE = "1536x1024"
     OUTPUT_FORMAT = "png"
     COMPAT_DALLE_EDIT_MODEL = "gpt-image-1"
-    COMPAT_DALLE_CREATE_MODEL = "gpt-image-1.5"
+    COMPAT_DALLE_CREATE_MODEL = "gpt-image-1-mini"
 
     SYSTEM_PROMPT = (
         "Критически важно: используй ТОЛЬКО приложенные изображения. "

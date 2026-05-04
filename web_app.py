@@ -150,6 +150,7 @@ MODELS = {
     TEXT_MODEL: TEXT_MODEL,
     "gpt-image-1": "gpt-image-1",
     "gpt-image-1.5": "gpt-image-1.5",
+    "gpt-image-2-2026-04-21": "gpt-image-2-2026-04-21",
     "gpt-image-1-mini": "gpt-image-1-mini",
     "dall-e-2": "dall-e-2",
     "create": "create",
@@ -159,10 +160,11 @@ MODELS = {
 MODEL_LABELS = {
     "gpt-image-1": "gpt-image-1",
     "gpt-image-1.5": "gpt-image-1.5",
+    "gpt-image-2-2026-04-21": "gpt-image-2-2026-04-21",
     "gpt-image-1-mini": "gpt-image-1-mini",
     "dall-e-2": "DALL-E 2",
     "create": "gpt-image-1.5 (create)",
-    "dalle_create": "DALL-E 2 (create)",
+    "dalle_create": f"DALL-E 2 (create → {processor.COMPAT_DALLE_CREATE_MODEL})",
     "rag_text": "RAG",
 }
 RAG_ALLOWED_EXTENSIONS = (".txt", ".pdf", ".xlsx", ".xls", ".docx", ".md", ".text")
@@ -518,7 +520,7 @@ def api_command():
         return {"ok": True, "message": (
             f"🖼 Pusplexity\n\nРежим по умолчанию: {TEXT_MODEL} (чат)\n\n"
             "◾ /text — чат, анализ 1 фото, контекст из документов\n"
-            "◾ /image1, /image15, /dalle — редактирование фото\n"
+            "◾ /image1, /image15, /image2, /dalle — редактирование фото\n"
             "◾ /create, /dalle_gen — генерация по тексту\n"
             "◾ /rag_add, /rag_index, /rag_text — RAG: база знаний\n\n"
             "/help — справка"
@@ -535,6 +537,9 @@ def api_command():
     if cmd == "image15":
         _set_model("gpt-image-1.5")
         return {"ok": True, "message": "✅ Модель: gpt-image-1.5. Можно загружать 1–10 фото."}
+    if cmd == "image2":
+        _set_model("gpt-image-2-2026-04-21")
+        return {"ok": True, "message": "✅ Модель: gpt-image-2-2026-04-21. Можно загружать 1–10 фото."}
     if cmd == "dalle":
         _set_model("gpt-image-1-mini")
         return {"ok": True, "message": "✅ Модель: gpt-image-1-mini. Можно загружать 1–10 фото."}
@@ -558,9 +563,10 @@ def api_command():
             f"Текст — Чат {TEXT_MODEL}: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
             "Image1 — gpt-image-1: редактирование 1–10 фото.\n"
             "Image15 — gpt-image-1.5: редактирование 1–10 фото.\n"
+            "Image2 — gpt-image-2-2026-04-21: редактирование 1–10 фото.\n"
             "DALL-E — gpt-image-1-mini: редактирование 1–10 фото.\n"
             "Create — Генерация изображения по тексту (gpt-image-1.5).\n"
-            "DALL-E Gen — Генерация по тексту (DALL-E 2, до 1000 символов).\n\n"
+            f"DALL-E Gen — Генерация по тексту (DALL-E 2 alias → {processor.COMPAT_DALLE_CREATE_MODEL}, до 1000 символов).\n\n"
             "◾ RAG — база знаний\n"
             "RAG Add — Включить режим загрузки. Загрузите TXT, PDF, XLSX, DOCX, MD.\n"
             "RAG Index — Индексировать файлы из data/ в ChromaDB.\n"
@@ -826,7 +832,7 @@ def api_send():
         return {"ok": True, "type": "text", "message": result_text, "model": model}
 
     # Режимы редактирования изображений
-    if model in ("gpt-image-1", "gpt-image-1.5", "gpt-image-1-mini", "dall-e-2") and images and not text:
+    if model in ("gpt-image-1", "gpt-image-1.5", "gpt-image-2-2026-04-21", "gpt-image-1-mini", "dall-e-2") and images and not text:
         ud["pending_images"] = images
         return {"ok": True, "type": "text", "message": (
             f"Получено {len(images)} изображений. Модель: {MODEL_LABELS.get(model, model)}. "

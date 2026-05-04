@@ -168,9 +168,10 @@ python bot.py cli
 | `/text` | Текстовый режим: чат, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений, /clear — сброс |
 | `/image1` | Редактирование 1–10 фото (gpt-image-1) |
 | `/image15` | Редактирование 1–10 фото (gpt-image-1.5) |
+| `/image2` | Редактирование 1–10 фото (gpt-image-2-2026-04-21) |
 | `/dalle` | Редактирование 1–10 фото (gpt-image-1-mini) |
 | `/create` | Генерация изображения по тексту (gpt-image-1.5) |
-| `/dalle_gen` | Генерация по тексту (DALL-E 2) |
+| `/dalle_gen` | Генерация по тексту (DALL-E 2 alias → gpt-image-1-mini) |
 | `/rag_add` | Включить загрузку документов → TXT, PDF, XLSX, DOCX, MD |
 | `/rag_index` | Индексировать файлы из `data/` в ChromaDB |
 | `/rag_list` | Список источников в RAG |

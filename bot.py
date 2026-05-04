@@ -205,6 +205,7 @@ def run_telegram_bot():
         TEXT_MODEL: TEXT_MODEL,
         "gpt-image-1": "gpt-image-1",
         "gpt-image-1.5": "gpt-image-1.5",
+        "gpt-image-2-2026-04-21": "gpt-image-2-2026-04-21",
         "gpt-image-1-mini": "gpt-image-1-mini",
         "dall-e-2": "dall-e-2",
         "create": "create",  # text-to-image, gpt-image-1.5
@@ -234,7 +235,7 @@ def run_telegram_bot():
             "🖼 Pusplexity\n\n"
             f"Режим по умолчанию: {TEXT_MODEL} (чат)\n\n"
             "◾ /text — чат, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD\n"
-            "◾ /image1, /image15, /dalle — редактирование фото\n"
+            "◾ /image1, /image15, /image2, /dalle — редактирование фото\n"
             "◾ /create, /dalle_gen — генерация по тексту\n"
             "◾ /rag_add, /rag_index, /rag_text — RAG: база знаний по документам\n\n"
             "/help — полная справка по всем командам"
@@ -244,6 +245,7 @@ def run_telegram_bot():
         TEXT_MODEL: TEXT_MODEL,
         "gpt-image-1": "gpt-image-1",
         "gpt-image-1.5": "gpt-image-1.5",
+        "gpt-image-2-2026-04-21": "gpt-image-2-2026-04-21",
         "gpt-image-1-mini": "gpt-image-1-mini",
         "dall-e-2": "DALL-E 2",
         "create": "gpt-image-1.5 (create)",
@@ -281,6 +283,14 @@ def run_telegram_bot():
         set_model(context, "gpt-image-1.5")
         await update.message.reply_text(
             "✅ Модель: gpt-image-1.5 (режим сохранён)\n\n"
+            "Можно загружать 1–10 фото (альбомом или по одному). "
+            "Фото объединяются для обработки."
+        )
+
+    async def cmd_image2(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        set_model(context, "gpt-image-2-2026-04-21")
+        await update.message.reply_text(
+            "✅ Модель: gpt-image-2-2026-04-21 (режим сохранён)\n\n"
             "Можно загружать 1–10 фото (альбомом или по одному). "
             "Фото объединяются для обработки."
         )
@@ -346,6 +356,7 @@ def run_telegram_bot():
             f"/text — Чат {TEXT_MODEL}: текст, анализ 1 фото, контекст из DOCX/PDF/XLSX/TXT/MD. Память 20 сообщений.\n"
             "/image1 — gpt-image-1: редактирование 1–10 фото.\n"
             "/image15 — gpt-image-1.5: редактирование 1–10 фото.\n"
+            "/image2 — gpt-image-2-2026-04-21: редактирование 1–10 фото.\n"
             "/dalle — gpt-image-1-mini: редактирование 1–10 фото.\n"
             "/create — Генерация по тексту (gpt-image-1.5).\n"
             f"/dalle_gen — Генерация по тексту (DALL-E 2 alias → {processor.COMPAT_DALLE_CREATE_MODEL}, до 1000 символов).\n\n"
@@ -553,7 +564,7 @@ def run_telegram_bot():
             await update.message.reply_text(
                 "✅ Режим RAG включён.\n\n"
                 "Задавайте вопросы — ответы будут сформированы на основе документов из хранилища.\n"
-                "Для смены режима: /text, /image15 и другие команды."
+                "Для смены режима: /text, /image15, /image2 и другие команды."
             )
             return
         await _process_rag_query(update, context, query)
@@ -1197,6 +1208,7 @@ def run_telegram_bot():
         app.add_handler(CommandHandler("text", cmd_text))
         app.add_handler(CommandHandler("image1", cmd_image1))
         app.add_handler(CommandHandler("image15", cmd_image15))
+        app.add_handler(CommandHandler("image2", cmd_image2))
         app.add_handler(CommandHandler("dalle", cmd_dalle))
         app.add_handler(CommandHandler("create", cmd_create))
         app.add_handler(CommandHandler("dalle_gen", cmd_dalle_gen))
