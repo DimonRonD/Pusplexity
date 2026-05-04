@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 from action_logs import (
     build_daily_csv,
-    build_daily_stats,
+    build_daily_dual_stats,
     extract_total_tokens,
     log_action,
 )
@@ -155,18 +155,30 @@ def run_telegram_bot():
             return None
 
     def _format_logs_report(stats: dict) -> str:
-        components = stats.get("components", {})
-        if components:
-            comp_lines = "\n".join(f"  • {k}: {v}" for k, v in components.items())
-        else:
-            comp_lines = "  • нет данных"
+        my_components = stats["mine"].get("components", {})
+        my_comp_lines = (
+            "\n".join(f"  • {k}: {v}" for k, v in my_components.items())
+            if my_components
+            else "  • нет данных"
+        )
+        total_components = stats["total"].get("components", {})
+        total_comp_lines = (
+            "\n".join(f"  • {k}: {v}" for k, v in total_components.items())
+            if total_components
+            else "  • нет данных"
+        )
         return (
             f"📊 Статистика за {stats['date']}\n\n"
+            f"👤 Моя статистика (Telegram):\n"
+            f"• Запросов: {stats['mine']['total_user_requests']}\n"
+            f"• Токенов: {stats['mine']['total_tokens']}\n"
+            f"Компоненты:\n{my_comp_lines}\n\n"
+            f"🌍 Суммарно за сутки (все пользователи):\n"
             f"• Уникальные пользователи Telegram: {stats['unique_telegram_users']}\n"
             f"• Уникальные пользователи Web: {stats['unique_web_users']}\n"
-            f"• Всего запросов пользователей: {stats['total_user_requests']}\n"
-            f"• Израсходовано токенов: {stats['total_tokens']}\n\n"
-            f"Компоненты:\n{comp_lines}"
+            f"• Запросов: {stats['total']['total_user_requests']}\n"
+            f"• Токенов: {stats['total']['total_tokens']}\n"
+            f"Компоненты:\n{total_comp_lines}"
         )
 
     LEGACY_TEXT_MODEL = "gpt-5.2"
@@ -342,7 +354,7 @@ def run_telegram_bot():
         if target_date is None:
             await update.message.reply_text("Неверный формат даты. Используйте: /logs 2026-05-03")
             return
-        stats = build_daily_stats(target_date)
+        stats = build_daily_dual_stats(target_date, actor_id=str(update.effective_user.id), source="telegram")
         report = _format_logs_report(stats)
         await update.message.reply_text(report)
         csv_bytes = build_daily_csv(target_date)

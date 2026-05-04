@@ -21,7 +21,7 @@ import user_db
 
 from action_logs import (
     build_daily_csv,
-    build_daily_stats,
+    build_daily_dual_stats,
     extract_total_tokens,
     log_action,
 )
@@ -87,18 +87,30 @@ def _parse_logs_date(raw: str | None):
 
 
 def _format_logs_report(stats: dict) -> str:
-    components = stats.get("components", {})
-    if components:
-        comp_lines = "\n".join(f"  • {k}: {v}" for k, v in components.items())
-    else:
-        comp_lines = "  • нет данных"
+    my_components = stats["mine"].get("components", {})
+    my_comp_lines = (
+        "\n".join(f"  • {k}: {v}" for k, v in my_components.items())
+        if my_components
+        else "  • нет данных"
+    )
+    total_components = stats["total"].get("components", {})
+    total_comp_lines = (
+        "\n".join(f"  • {k}: {v}" for k, v in total_components.items())
+        if total_components
+        else "  • нет данных"
+    )
     return (
         f"📊 Статистика за {stats['date']}\n\n"
+        f"👤 Моя статистика (Web):\n"
+        f"• Запросов: {stats['mine']['total_user_requests']}\n"
+        f"• Токенов: {stats['mine']['total_tokens']}\n"
+        f"Компоненты:\n{my_comp_lines}\n\n"
+        f"🌍 Суммарно за сутки (все пользователи):\n"
         f"• Уникальные пользователи Telegram: {stats['unique_telegram_users']}\n"
         f"• Уникальные пользователи Web: {stats['unique_web_users']}\n"
-        f"• Всего запросов пользователей: {stats['total_user_requests']}\n"
-        f"• Израсходовано токенов: {stats['total_tokens']}\n\n"
-        f"Компоненты:\n{comp_lines}"
+        f"• Запросов: {stats['total']['total_user_requests']}\n"
+        f"• Токенов: {stats['total']['total_tokens']}\n"
+        f"Компоненты:\n{total_comp_lines}"
     )
 
 
@@ -554,7 +566,8 @@ def api_command():
         target_date = _parse_logs_date(raw_date or None)
         if target_date is None:
             return _api_error("Неверный формат даты. Используйте: logs 2026-05-03")
-        stats = build_daily_stats(target_date)
+        actor = session.get("email") or "anonymous"
+        stats = build_daily_dual_stats(target_date, actor_id=str(actor), source="web")
         report = _format_logs_report(stats)
         csv_bytes = build_daily_csv(target_date)
         return {

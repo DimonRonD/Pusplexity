@@ -114,7 +114,60 @@ def _day_bounds(target_day: date) -> tuple[str, str]:
     return start_dt.isoformat(), end_dt.isoformat()
 
 
-def build_daily_stats(target_day: date) -> dict:
+def _query_stats(
+    *,
+    target_day: date,
+    actor_id: str | None = None,
+    source: str | None = None,
+) -> dict:
+    start_iso, end_iso = _day_bounds(target_day)
+    filters = ["created_at BETWEEN ? AND ?"]
+    params: list[object] = [start_iso, end_iso]
+    if actor_id is not None:
+        filters.append("actor_id = ?")
+        params.append(str(actor_id))
+    if source is not None:
+        filters.append("source = ?")
+        params.append(source)
+    where_sql = " AND ".join(filters)
+
+    with _LOCK:
+        _init_db()
+        with _get_conn() as conn:
+            total_requests = conn.execute(
+                f"""
+                SELECT COUNT(*) AS c
+                FROM action_logs
+                WHERE action='user_request' AND {where_sql}
+                """,
+                params,
+            ).fetchone()["c"]
+            total_tokens = conn.execute(
+                f"""
+                SELECT COALESCE(SUM(tokens_total), 0) AS c
+                FROM action_logs
+                WHERE action='ai_response' AND {where_sql}
+                """,
+                params,
+            ).fetchone()["c"]
+            component_rows = conn.execute(
+                f"""
+                SELECT COALESCE(component, 'unknown') AS component, COUNT(*) AS c
+                FROM action_logs
+                WHERE action='ai_request' AND {where_sql}
+                GROUP BY COALESCE(component, 'unknown')
+                ORDER BY c DESC, component ASC
+                """,
+                params,
+            ).fetchall()
+    return {
+        "total_user_requests": int(total_requests or 0),
+        "total_tokens": int(total_tokens or 0),
+        "components": {row["component"]: int(row["c"] or 0) for row in component_rows},
+    }
+
+
+def build_daily_stats(target_day: date, actor_id: str | None = None, source: str | None = None) -> dict:
     start_iso, end_iso = _day_bounds(target_day)
     with _LOCK:
         _init_db()
@@ -135,39 +188,30 @@ def build_daily_stats(target_day: date) -> dict:
                 """,
                 (start_iso, end_iso),
             ).fetchone()["c"]
-            total_requests = conn.execute(
-                """
-                SELECT COUNT(*) AS c
-                FROM action_logs
-                WHERE action='user_request' AND created_at BETWEEN ? AND ?
-                """,
-                (start_iso, end_iso),
-            ).fetchone()["c"]
-            total_tokens = conn.execute(
-                """
-                SELECT COALESCE(SUM(tokens_total), 0) AS c
-                FROM action_logs
-                WHERE action='ai_response' AND created_at BETWEEN ? AND ?
-                """,
-                (start_iso, end_iso),
-            ).fetchone()["c"]
-            component_rows = conn.execute(
-                """
-                SELECT COALESCE(component, 'unknown') AS component, COUNT(*) AS c
-                FROM action_logs
-                WHERE action='ai_request' AND created_at BETWEEN ? AND ?
-                GROUP BY COALESCE(component, 'unknown')
-                ORDER BY c DESC, component ASC
-                """,
-                (start_iso, end_iso),
-            ).fetchall()
+    scoped = _query_stats(target_day=target_day, actor_id=actor_id, source=source)
     return {
         "date": target_day.isoformat(),
         "unique_telegram_users": int(unique_tg or 0),
         "unique_web_users": int(unique_web or 0),
-        "total_user_requests": int(total_requests or 0),
-        "total_tokens": int(total_tokens or 0),
-        "components": {row["component"]: int(row["c"] or 0) for row in component_rows},
+        "total_user_requests": scoped["total_user_requests"],
+        "total_tokens": scoped["total_tokens"],
+        "components": scoped["components"],
+    }
+
+
+def build_daily_dual_stats(target_day: date, actor_id: str, source: str) -> dict:
+    total = build_daily_stats(target_day)
+    mine = _query_stats(target_day=target_day, actor_id=actor_id, source=source)
+    return {
+        "date": target_day.isoformat(),
+        "unique_telegram_users": total["unique_telegram_users"],
+        "unique_web_users": total["unique_web_users"],
+        "mine": mine,
+        "total": {
+            "total_user_requests": total["total_user_requests"],
+            "total_tokens": total["total_tokens"],
+            "components": total["components"],
+        },
     }
 
 
