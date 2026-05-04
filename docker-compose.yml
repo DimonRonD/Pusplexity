@@ -6,6 +6,7 @@ services:
     env_file: .env
     environment:
       - BOT_DATA_PATH=/data/bot_data.pickle
+      - LOG_DB_PATH=/app/db
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -14,6 +15,7 @@ services:
       - bot_data:/data
       - bot_documents:/app/data
       - chroma_data:/app/chroma_db
+      - user_db:/app/db
     # Для вывода логов в консоль добавьте -v:
     # command: ["python", "bot.py", "telegram", "-v"]
 
@@ -26,6 +28,7 @@ services:
       - USERS_FILE=/app/users.txt
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
       - USER_DB_PATH=/app/db
+      - LOG_DB_PATH=/app/db
     security_opt:
       - no-new-privileges:true
     cap_drop:
