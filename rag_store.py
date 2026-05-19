@@ -42,8 +42,16 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
 
 
 def _load_txt(path: Path) -> str:
-    """Загружает текстовый файл."""
-    return path.read_text(encoding="utf-8", errors="replace")
+    """Загружает текстовый файл (UTF-8, UTF-8 BOM, Windows-1251, Latin-1)."""
+    raw = path.read_bytes()
+    if not raw:
+        return ""
+    for encoding in ("utf-8-sig", "utf-8", "cp1251", "latin-1"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
 
 
 def _load_pdf(path: Path) -> str:

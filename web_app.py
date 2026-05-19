@@ -236,11 +236,30 @@ def _guess_doc_type(data: bytes) -> str | None:
         return "zip-office"
     if data.startswith(b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"):
         return "ole-office"
-    try:
-        data[:2048].decode("utf-8")
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
         return "text"
-    except UnicodeDecodeError:
-        return None
+    for encoding in ("utf-8", "cp1251", "latin-1"):
+        try:
+            data[:2048].decode(encoding)
+            return "text"
+        except UnicodeDecodeError:
+            continue
+    return None
+
+
+def _safe_storage_filename(filename: str) -> str:
+    """
+    Безопасное имя файла на диске с сохранением расширения.
+    secure_filename() для кириллицы даёт «docx»/«txt» без точки — парсер не видит формат.
+    """
+    path = Path(filename or "")
+    ext = path.suffix.lower()
+    if ext not in TEXT_CONTEXT_EXTENSIONS and ext not in RAG_ALLOWED_EXTENSIONS:
+        ext = ""
+    stem = secure_filename(path.stem)
+    if not stem:
+        stem = f"upload-{uuid.uuid4().hex[:8]}"
+    return f"{stem}{ext}"
 
 
 def _looks_like_image(data: bytes) -> bool:
@@ -893,7 +912,7 @@ def api_upload():
         if not _validate_uploaded_document(f.filename, raw):
             return _api_error("Файл не прошёл проверку типа содержимого.")
         DATA_DIR.mkdir(parents=True, exist_ok=True)
-        dest = DATA_DIR / secure_filename(f.filename or f"upload-{uuid.uuid4().hex}")
+        dest = DATA_DIR / _safe_storage_filename(f.filename or f"upload-{uuid.uuid4().hex}")
         dest.write_bytes(raw)
         return {"ok": True, "message": f"✅ Сохранён: {f.filename}"}
 
@@ -914,11 +933,22 @@ def api_upload():
             return _api_error("Файл не прошёл проверку типа содержимого.")
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
-                tmp_path = Path(tmpdir) / secure_filename(f.filename)
+                tmp_path = Path(tmpdir) / _safe_storage_filename(f.filename)
                 tmp_path.write_bytes(raw)
                 content = _load_document_with_timeout(tmp_path)
             if not content or not content.strip():
-                return _api_error("Не удалось извлечь текст.")
+                if ext == ".docx":
+                    try:
+                        import docx  # noqa: F401
+                    except ImportError:
+                        return _api_error(
+                            "Не удалось обработать DOCX: не установлен пакет python-docx. "
+                            "Выполните: pip install -r requirements.txt"
+                        )
+                return _api_error(
+                    "Не удалось извлечь текст. Проверьте, что файл не пуст и содержит текст "
+                    "(для TXT — UTF-8 или Windows-1251)."
+                )
             ud["text_context"] = content.strip()
             ud["text_context_filename"] = f.filename
             _save_user_data()
