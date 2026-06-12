@@ -24,6 +24,14 @@ from action_logs import (
 )
 from processor import ImageProcessor
 from rag_store import DATA_DIR, RAGStore, load_document
+from telegram_format import (
+    LEGACY_HTML_MAX_LEN,
+    RICH_MESSAGE_MAX_LEN,
+    chunk_markdown_for_telegram,
+    format_chat_markup,
+    prepare_telegram_rich_markdown,
+    use_rich_messages,
+)
 
 load_dotenv()
 
@@ -87,6 +95,7 @@ def run_telegram_bot():
 
     try:
         from telegram import Update
+        from telegram.constants import ParseMode
         from telegram.ext import (
             Application,
             CommandHandler,
@@ -112,6 +121,40 @@ def run_telegram_bot():
 
     logger.info("Токен загружен, инициализация процессора изображений")
     processor = ImageProcessor()
+
+    async def reply_formatted(message, text: str, **kwargs):
+        """
+        Отправка с Rich Markdown (sendRichMessage, таблицы GFM) или fallback HTML.
+        """
+        rich_enabled = use_rich_messages()
+        max_len = RICH_MESSAGE_MAX_LEN if rich_enabled else LEGACY_HTML_MAX_LEN
+        parts = chunk_markdown_for_telegram(text, max_len)
+        last = None
+        for part in parts:
+            if rich_enabled:
+                markdown = prepare_telegram_rich_markdown(part)
+                try:
+                    last = await message.get_bot().do_api_request(
+                        "sendRichMessage",
+                        api_kwargs={
+                            "chat_id": message.chat_id,
+                            "rich_message": {"markdown": markdown},
+                        },
+                    )
+                    continue
+                except Exception as exc:
+                    logger.warning(
+                        "sendRichMessage недоступен, fallback HTML: %s", exc
+                    )
+            formatted = format_chat_markup(part)
+            try:
+                last = await message.reply_text(
+                    formatted, parse_mode=ParseMode.HTML, **kwargs
+                )
+            except Exception as exc:
+                logger.warning("HTML-разметка не принята, plain text: %s", exc)
+                last = await message.reply_text(part, **kwargs)
+        return last
 
     def _log_tg_action(
         user_id: int | str,
@@ -547,14 +590,16 @@ def run_telegram_bot():
             context.user_data, "rag_chat_history", query, result_text
         )
         await msg.delete()
-        parts = chunk_text(result_text)
-        if not parts:
+        if not result_text or not result_text.strip():
             await update.message.reply_text("(Пустой ответ)")
         else:
-            for part in parts:
-                await update.message.reply_text(part)
-        await update.message.reply_text(f"🤖 Модель ответа: {TEXT_MODEL}")
-        await update.message.reply_text(f"📎 Источники (score): {sources_line}")
+            await reply_formatted(update.message, result_text)
+        await reply_formatted(
+            update.message, f"🤖 **Модель ответа:** `{TEXT_MODEL}`"
+        )
+        await reply_formatted(
+            update.message, f"📎 **Источники (score):** {sources_line}"
+        )
         _log_tg_action(update.effective_user.id, "ai_response", response_text=result_text, component="rag", tokens_total=used_tokens)
 
     async def cmd_rag_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1111,13 +1156,13 @@ def run_telegram_bot():
                 context.user_data, "text_chat_history", user_msg_for_history, result_text
             )
             await message.delete()
-            parts = chunk_text(result_text)
-            if not parts:
+            if not result_text or not result_text.strip():
                 await update.message.reply_text("(Пустой ответ)")
             else:
-                for part in parts:
-                    await update.message.reply_text(part)
-            await update.message.reply_text(f"🤖 Модель ответа: {model}")
+                await reply_formatted(update.message, result_text)
+            await reply_formatted(
+                update.message, f"🤖 **Модель ответа:** `{model}`"
+            )
             _log_tg_action(
                 user.id,
                 "ai_response",

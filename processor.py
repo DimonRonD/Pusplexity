@@ -26,6 +26,13 @@ def _resolve_text_model(raw: str | None) -> str:
 
 TEXT_MODEL = _resolve_text_model(os.environ.get("OPENAI_TEXT_MODEL"))
 
+TELEGRAM_MARKUP_HINT = (
+    "Форматируй ответ для Telegram Rich Message, при необходимости: "
+    "**жирный**, __курсив__, ~~зачёркнутый~~, `моноширный`, ||скрытый текст||. "
+    "Для табличных данных используй GFM-таблицы (| заголовок | ... |, строка |---|---|). "
+    "Списки: - пункт. Не злоупотребляй разметкой."
+)
+
 
 def _format_usage(usage) -> str | None:
     """Форматирует usage из ответа API в строку для отображения."""
@@ -282,7 +289,7 @@ class ImageProcessor:
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
         ]
 
-        messages = []
+        messages = [{"role": "system", "content": TELEGRAM_MARKUP_HINT}]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": content})
@@ -308,7 +315,7 @@ class ImageProcessor:
         """
         if not prompt or not prompt.strip():
             raise ValueError("Сообщение не может быть пустым")
-        messages = []
+        messages = [{"role": "system", "content": TELEGRAM_MARKUP_HINT}]
         if history:
             messages.extend(history)
         messages.append({"role": "user", "content": prompt.strip()})
@@ -340,7 +347,8 @@ class ImageProcessor:
             "2) История диалога (предыдущие вопросы и ответы) — для вопросов о самом разговоре: "
             "«какие были предыдущие вопросы/команды», «что мы обсуждали», «повтори ответ» и т.п.\n\n"
             "Для вопросов о документах отвечай только на основе контекста. "
-            "Для вопросов о диалоге используй историю. Если информации нет, честно скажи."
+            "Для вопросов о диалоге используй историю. Если информации нет, честно скажи.\n\n"
+            + TELEGRAM_MARKUP_HINT
         )
         user_content = f"Контекст:\n\n{context}\n\n---\nВопрос: {prompt.strip()}"
         messages = [{"role": "system", "content": system}]
