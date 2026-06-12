@@ -16,6 +16,17 @@ services:
       - bot_documents:/app/data
       - chroma_data:/app/chroma_db
       - user_db:/app/db
+      # Код с хоста — обновление через git pull + restart без пересборки образа
+      - ./bot.py:/app/bot.py:ro
+      - ./processor.py:/app/processor.py:ro
+      - ./rag_store.py:/app/rag_store.py:ro
+      - ./auth.py:/app/auth.py:ro
+      - ./web_app.py:/app/web_app.py:ro
+      - ./user_db.py:/app/user_db.py:ro
+      - ./action_logs.py:/app/action_logs.py:ro
+      - ./telegram_format.py:/app/telegram_format.py:ro
+      - ./templates:/app/templates:ro
+      - ./static:/app/static:ro
     # Для вывода логов в консоль добавьте -v:
     # command: ["python", "bot.py", "telegram", "-v"]
 
@@ -54,6 +65,16 @@ services:
       - chroma_data:/app/chroma_db
       - user_db:/app/db
       - ./users.txt:/app/users.txt:ro
+      - ./bot.py:/app/bot.py:ro
+      - ./processor.py:/app/processor.py:ro
+      - ./rag_store.py:/app/rag_store.py:ro
+      - ./auth.py:/app/auth.py:ro
+      - ./web_app.py:/app/web_app.py:ro
+      - ./user_db.py:/app/user_db.py:ro
+      - ./action_logs.py:/app/action_logs.py:ro
+      - ./telegram_format.py:/app/telegram_format.py:ro
+      - ./templates:/app/templates:ro
+      - ./static:/app/static:ro
     command: ["gunicorn", "-w", "1", "-k", "gevent", "-b", "0.0.0.0:5000", "--timeout", "300", "--keep-alive", "5", "web_app:app"]
 
 volumes:
